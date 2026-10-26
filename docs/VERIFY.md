@@ -63,3 +63,4 @@
 - [ ] Three pages work against the deployed API; daily caps verified by a test (429 path)
 - [ ] README meets the standard (hostile-query table, five written-up failures, Related-work section)
 - [ ] Live link + demo GIF in the README
+**Deploy:** self-hosted on the owner's server (Ubuntu + nginx), frontend and backend, like the other fullstack projects — not free hosts. See `DECISIONS.md`.

@@ -11,6 +11,7 @@ these.
 | 2026-10-26 | Python env tooling | `venv` + `pip` (no `uv`) | `uv` is not installed on the dev machine; stick to stdlib `venv` so `make setup` works everywhere |
 | 2026-10-26 | Default branch | `main` | New repo; GitHub default |
 | 2026-10-26 | Multi-DB support (Postgres/MySQL) | Out of scope for v1; recorded as the next scope | Brief lists them as stretch-only; v1 is SQLite-only |
+| 2026-10-26 | Deployment | Self-hosted on the owner's server (Ubuntu + nginx), both frontend and backend | Owner self-hosts all fullstack projects; not free hosts (Vercel / Render / Hugging Face Spaces) |
 
 ## Open questions for the owner
 
