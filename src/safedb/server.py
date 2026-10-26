@@ -180,9 +180,7 @@ def _schema_markdown(config: AppConfig, database: str) -> str:
             if fks:
                 lines.append("")
                 for fk in fks:
-                    lines.append(
-                        f"- FK: {fk['column']} -> {fk['ref_table']}.{fk['ref_column']}"
-                    )
+                    lines.append(f"- FK: {fk['column']} -> {fk['ref_table']}.{fk['ref_column']}")
             lines.append("")
     finally:
         conn.close()

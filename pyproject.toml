@@ -36,12 +36,15 @@ packages = ["src/safedb"]
 line-length = 100
 target-version = "py311"
 src = ["src", "eval", "tests"]
+# Ruff governs Python only; documentation (and its illustrative code blocks) is left as-is.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "W"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 markers = [
     "unit: fast, isolated unit tests",
     "integration: tests that start the MCP server over stdio",
