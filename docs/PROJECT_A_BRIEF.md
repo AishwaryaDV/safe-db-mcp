@@ -508,6 +508,8 @@ Loading + error states on every page. **No raw SQL input anywhere in the browser
 - [ ] README meets the standard, incl. hostile-query results table, five written-up failures,
       Related-work section built from `docs/related-work.md`
 - [ ] Live link + demo GIF in README
+- Deploy is **self-hosted** on the owner's server (Ubuntu + nginx), frontend and backend, like
+  the other fullstack projects — not free hosts (see `DECISIONS.md`).
 
 ---
 
