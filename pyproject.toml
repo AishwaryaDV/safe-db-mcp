@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "safe-db-mcp"
+version = "0.1.0"
+description = "An MCP server for safe, read-only SQLite querying, with an eval harness that measures model text-to-SQL accuracy through the server."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Aishwarya DV" }]
+dependencies = [
+    "mcp>=2.3.0",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.4",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+safedb-mcp = "safedb.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/safedb"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "eval", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: fast, isolated unit tests",
+    "integration: tests that start the MCP server over stdio",
+    "safety: hostile-query safety suite (added in P2)",
+    "live_llm: tests that call a real model (never run in CI)",
+]
+addopts = "-ra"
