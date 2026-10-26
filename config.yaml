@@ -1,0 +1,16 @@
+# Non-secret settings for safe-db-mcp. Secrets live in .env (see .env.example).
+databases:
+  - name: chinook
+    path: data/chinook/Chinook_Sqlite.sqlite
+    description: Music store sample (artists, albums, tracks, customers, invoices)
+  # One entry per Spider database is added to the eval slice in P5.
+
+limits:
+  max_rows_default: 100
+  max_rows_cap: 1000
+  timeout_s: 3
+  max_sql_chars: 4000
+  max_cell_chars: 500
+  sample_rows_default: 3
+
+audit_db: data/audit.sqlite
