@@ -20,7 +20,7 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel
 
 from safedb import __version__, audit, db, executor
-from safedb.config import AppConfig, load_config
+from safedb.config import AppConfig, Settings, load_config
 from safedb.tool_descriptions import TOOL_DESCRIPTIONS
 
 # --- Tool output models ------------------------------------------------------
@@ -89,6 +89,10 @@ def _status_for(ok: bool, error_type: str | None) -> str:
     return "error"
 
 
+def _known_databases_hint(config: AppConfig) -> str:
+    return "Available databases: " + ", ".join(d.name for d in config.databases)
+
+
 @contextmanager
 def _audit_call(
     config: AppConfig,
@@ -126,6 +130,7 @@ def _audit_call(
 def build_server(config: AppConfig) -> MCPServer:
     """Build the MCP server bound to a given config."""
     audit.init_db(config.audit_db)
+    hints_enabled = Settings().hints == "on"
     mcp = MCPServer("safe-db-mcp", version=__version__)
 
     @mcp.tool(name="list_databases", description=TOOL_DESCRIPTIONS["list_databases"])
@@ -182,7 +187,10 @@ def build_server(config: AppConfig) -> MCPServer:
                 entry = config.database(database)
             except KeyError as exc:
                 result = executor.QueryResult(
-                    ok=False, error_type="unknown_object", message=str(exc)
+                    ok=False,
+                    error_type="unknown_object",
+                    message=str(exc),
+                    hint=_known_databases_hint(config) if hints_enabled else None,
                 )
             else:
                 limits = config.limits
@@ -195,6 +203,7 @@ def build_server(config: AppConfig) -> MCPServer:
                     timeout_s=limits.timeout_s,
                     max_cell_chars=limits.max_cell_chars,
                     max_sql_chars=limits.max_sql_chars,
+                    hints_enabled=hints_enabled,
                 )
             rec["status"] = _status_for(result.ok, result.error_type)
             rec["error_type"] = result.error_type
@@ -210,7 +219,10 @@ def build_server(config: AppConfig) -> MCPServer:
                 entry = config.database(database)
             except KeyError as exc:
                 result = executor.ExplainResult(
-                    ok=False, error_type="unknown_object", message=str(exc)
+                    ok=False,
+                    error_type="unknown_object",
+                    message=str(exc),
+                    hint=_known_databases_hint(config) if hints_enabled else None,
                 )
             else:
                 limits = config.limits
@@ -219,6 +231,7 @@ def build_server(config: AppConfig) -> MCPServer:
                     sql,
                     max_sql_chars=limits.max_sql_chars,
                     timeout_s=limits.timeout_s,
+                    hints_enabled=hints_enabled,
                 )
             rec["status"] = _status_for(result.ok, result.error_type)
             rec["error_type"] = result.error_type
