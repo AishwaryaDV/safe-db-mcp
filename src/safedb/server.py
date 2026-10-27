@@ -17,7 +17,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel
 
-from safedb import __version__, db
+from safedb import __version__, db, executor
 from safedb.config import AppConfig, load_config
 from safedb.tool_descriptions import TOOL_DESCRIPTIONS
 
@@ -58,13 +58,6 @@ class TableInfo(BaseModel):
 class SchemaResult(BaseModel):
     database: str
     tables: list[TableInfo]
-
-
-class QueryError(BaseModel):
-    ok: bool = False
-    error_type: str
-    message: str
-    hint: str | None = None
 
 
 # --- Server construction -----------------------------------------------------
@@ -135,19 +128,35 @@ def build_server(config: AppConfig) -> MCPServer:
         return SchemaResult(database=database, tables=tables)
 
     @mcp.tool(name="run_query", description=TOOL_DESCRIPTIONS["run_query"])
-    def run_query(database: str, sql: str, max_rows: int | None = None) -> QueryError:
-        # Enabled in P2 once safety.py + executor.py validate and run model-written SQL.
-        return QueryError(
-            error_type="internal",
-            message="run_query is enabled in P2, once the safety layer is in place.",
+    def run_query(database: str, sql: str, max_rows: int | None = None) -> executor.QueryResult:
+        try:
+            entry = config.database(database)
+        except KeyError as exc:
+            return executor.QueryResult(ok=False, error_type="unknown_object", message=str(exc))
+        limits = config.limits
+        rows = limits.max_rows_default if max_rows is None else max_rows
+        return executor.run_query(
+            entry.path,
+            sql,
+            max_rows=rows,
+            max_rows_cap=limits.max_rows_cap,
+            timeout_s=limits.timeout_s,
+            max_cell_chars=limits.max_cell_chars,
+            max_sql_chars=limits.max_sql_chars,
         )
 
     @mcp.tool(name="explain_query", description=TOOL_DESCRIPTIONS["explain_query"])
-    def explain_query(database: str, sql: str) -> QueryError:
-        # Enabled in P2 alongside run_query.
-        return QueryError(
-            error_type="internal",
-            message="explain_query is enabled in P2, once the safety layer is in place.",
+    def explain_query(database: str, sql: str) -> executor.ExplainResult:
+        try:
+            entry = config.database(database)
+        except KeyError as exc:
+            return executor.ExplainResult(ok=False, error_type="unknown_object", message=str(exc))
+        limits = config.limits
+        return executor.explain_query(
+            entry.path,
+            sql,
+            max_sql_chars=limits.max_sql_chars,
+            timeout_s=limits.timeout_s,
         )
 
     @mcp.resource("schema://{database}")
