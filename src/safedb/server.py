@@ -12,12 +12,14 @@ Confirmed against mcp 2.3.0: ``from mcp.server.mcpserver import MCPServer`` with
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel
 
-from safedb import __version__, db, executor
+from safedb import __version__, audit, db, executor
 from safedb.config import AppConfig, load_config
 from safedb.tool_descriptions import TOOL_DESCRIPTIONS
 
@@ -78,86 +80,149 @@ def _clamp_sample_rows(value: int | None, default: int) -> int:
     return max(0, min(5, n))
 
 
+def _status_for(ok: bool, error_type: str | None) -> str:
+    """Map a result to an audit status (ok | blocked | timeout | error)."""
+    if ok:
+        return "ok"
+    if error_type in ("blocked", "timeout"):
+        return error_type
+    return "error"
+
+
+@contextmanager
+def _audit_call(
+    config: AppConfig,
+    tool: str,
+    *,
+    source: str = "mcp",
+    database: str | None = None,
+    sql: str | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Record exactly one audit row for a tool call, including on exception.
+
+    The body may update the yielded dict (status, error_type, row_count, ...); the row is
+    written in a finally so blocked and failed calls are logged too.
+    """
+    rec: dict[str, Any] = {
+        "status": "ok",
+        "error_type": None,
+        "reason": None,
+        "row_count": None,
+        "truncated": None,
+        "elapsed_ms": None,
+    }
+    try:
+        yield rec
+    except Exception as exc:
+        rec["status"] = "error"
+        rec["reason"] = str(exc)
+        raise
+    finally:
+        audit.write_audit(
+            config.audit_db, source=source, tool=tool, database=database, sql=sql, **rec
+        )
+
+
 def build_server(config: AppConfig) -> MCPServer:
     """Build the MCP server bound to a given config."""
+    audit.init_db(config.audit_db)
     mcp = MCPServer("safe-db-mcp", version=__version__)
 
     @mcp.tool(name="list_databases", description=TOOL_DESCRIPTIONS["list_databases"])
     def list_databases() -> DatabasesList:
-        infos: list[DatabaseInfo] = []
-        for entry in config.databases:
-            conn = db.open_readonly(entry.path)
-            try:
-                count = db.table_count(conn)
-            finally:
-                conn.close()
-            infos.append(
-                DatabaseInfo(name=entry.name, description=entry.description, table_count=count)
-            )
-        return DatabasesList(databases=infos)
+        with _audit_call(config, "list_databases"):
+            infos: list[DatabaseInfo] = []
+            for entry in config.databases:
+                conn = db.open_readonly(entry.path)
+                try:
+                    count = db.table_count(conn)
+                finally:
+                    conn.close()
+                infos.append(
+                    DatabaseInfo(name=entry.name, description=entry.description, table_count=count)
+                )
+            return DatabasesList(databases=infos)
 
     @mcp.tool(name="describe_schema", description=TOOL_DESCRIPTIONS["describe_schema"])
     def describe_schema(
         database: str, table: str | None = None, sample_rows: int | None = None
     ) -> SchemaResult:
-        entry = config.database(database)  # raises KeyError with known names if unknown
-        n_samples = _clamp_sample_rows(sample_rows, config.limits.sample_rows_default)
-        conn = db.open_readonly(entry.path)
-        try:
-            available = db.list_tables(conn)
-            if table is not None:
-                if table not in available:
-                    known = ", ".join(available)
-                    raise ValueError(f"unknown table {table!r}; tables: {known}")
-                targets = [table]
-            else:
-                targets = available
+        with _audit_call(config, "describe_schema", database=database):
+            entry = config.database(database)  # raises KeyError with known names if unknown
+            n_samples = _clamp_sample_rows(sample_rows, config.limits.sample_rows_default)
+            conn = db.open_readonly(entry.path)
+            try:
+                available = db.list_tables(conn)
+                if table is not None:
+                    if table not in available:
+                        known = ", ".join(available)
+                        raise ValueError(f"unknown table {table!r}; tables: {known}")
+                    targets = [table]
+                else:
+                    targets = available
 
-            tables = [
-                TableInfo(
-                    name=name,
-                    row_count=db.row_count(conn, name),
-                    columns=[ColumnInfo(**c) for c in db.columns(conn, name)],
-                    foreign_keys=[ForeignKeyInfo(**fk) for fk in db.foreign_keys(conn, name)],
-                    sample_rows=db.sample_rows(conn, name, n_samples) if n_samples else None,
-                )
-                for name in targets
-            ]
-        finally:
-            conn.close()
-        return SchemaResult(database=database, tables=tables)
+                tables = [
+                    TableInfo(
+                        name=name,
+                        row_count=db.row_count(conn, name),
+                        columns=[ColumnInfo(**c) for c in db.columns(conn, name)],
+                        foreign_keys=[ForeignKeyInfo(**fk) for fk in db.foreign_keys(conn, name)],
+                        sample_rows=db.sample_rows(conn, name, n_samples) if n_samples else None,
+                    )
+                    for name in targets
+                ]
+            finally:
+                conn.close()
+            return SchemaResult(database=database, tables=tables)
 
     @mcp.tool(name="run_query", description=TOOL_DESCRIPTIONS["run_query"])
     def run_query(database: str, sql: str, max_rows: int | None = None) -> executor.QueryResult:
-        try:
-            entry = config.database(database)
-        except KeyError as exc:
-            return executor.QueryResult(ok=False, error_type="unknown_object", message=str(exc))
-        limits = config.limits
-        rows = limits.max_rows_default if max_rows is None else max_rows
-        return executor.run_query(
-            entry.path,
-            sql,
-            max_rows=rows,
-            max_rows_cap=limits.max_rows_cap,
-            timeout_s=limits.timeout_s,
-            max_cell_chars=limits.max_cell_chars,
-            max_sql_chars=limits.max_sql_chars,
-        )
+        with _audit_call(config, "run_query", database=database, sql=sql) as rec:
+            try:
+                entry = config.database(database)
+            except KeyError as exc:
+                result = executor.QueryResult(
+                    ok=False, error_type="unknown_object", message=str(exc)
+                )
+            else:
+                limits = config.limits
+                rows = limits.max_rows_default if max_rows is None else max_rows
+                result = executor.run_query(
+                    entry.path,
+                    sql,
+                    max_rows=rows,
+                    max_rows_cap=limits.max_rows_cap,
+                    timeout_s=limits.timeout_s,
+                    max_cell_chars=limits.max_cell_chars,
+                    max_sql_chars=limits.max_sql_chars,
+                )
+            rec["status"] = _status_for(result.ok, result.error_type)
+            rec["error_type"] = result.error_type
+            rec["row_count"] = result.row_count
+            rec["truncated"] = result.truncated
+            rec["elapsed_ms"] = result.elapsed_ms
+            return result
 
     @mcp.tool(name="explain_query", description=TOOL_DESCRIPTIONS["explain_query"])
     def explain_query(database: str, sql: str) -> executor.ExplainResult:
-        try:
-            entry = config.database(database)
-        except KeyError as exc:
-            return executor.ExplainResult(ok=False, error_type="unknown_object", message=str(exc))
-        limits = config.limits
-        return executor.explain_query(
-            entry.path,
-            sql,
-            max_sql_chars=limits.max_sql_chars,
-            timeout_s=limits.timeout_s,
-        )
+        with _audit_call(config, "explain_query", database=database, sql=sql) as rec:
+            try:
+                entry = config.database(database)
+            except KeyError as exc:
+                result = executor.ExplainResult(
+                    ok=False, error_type="unknown_object", message=str(exc)
+                )
+            else:
+                limits = config.limits
+                result = executor.explain_query(
+                    entry.path,
+                    sql,
+                    max_sql_chars=limits.max_sql_chars,
+                    timeout_s=limits.timeout_s,
+                )
+            rec["status"] = _status_for(result.ok, result.error_type)
+            rec["error_type"] = result.error_type
+            return result
 
     @mcp.resource("schema://{database}")
     def schema_resource(database: str) -> str:
