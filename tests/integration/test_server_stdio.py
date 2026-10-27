@@ -78,10 +78,20 @@ async def test_read_tools_return_chinook_data():
         assert no_samples.structured_content["tables"][0]["sample_rows"] is None
 
 
-async def test_query_tools_registered_but_not_yet_enabled():
+async def test_run_query_executes_and_blocks():
     async with connect() as session:
-        result = await session.call_tool("run_query", {"database": "chinook", "sql": "SELECT 1"})
-        assert result.structured_content["ok"] is False
+        ok = await session.call_tool("run_query", {"database": "chinook", "sql": "SELECT 1 AS n"})
+        assert ok.structured_content["ok"] is True
+        assert ok.structured_content["rows"] == [[1]]
+
+        blocked = await session.call_tool(
+            "run_query", {"database": "chinook", "sql": "DROP TABLE Album"}
+        )
+        assert blocked.structured_content["ok"] is False
+        assert blocked.structured_content["error_type"] == "blocked"
+
+        unknown = await session.call_tool("run_query", {"database": "nope", "sql": "SELECT 1"})
+        assert unknown.structured_content["error_type"] == "unknown_object"
 
 
 async def test_resource_and_prompt_render():
