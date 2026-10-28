@@ -9,8 +9,8 @@ Backends:
   owner's local Claude Code / ``ant auth login`` credential automatically (no API key env var
   needed). Default model ``claude-sonnet-5``. Sonnet 5 / Opus 4.8 reject non-default
   ``temperature``, so the Claude backend omits it and disables thinking.
-- ``gemini`` — free tier, key in ``GEMINI_API_KEY`` (implemented at the P5 record/deploy step
-  once the ``google-genai`` API is confirmed; stubbed here).
+- ``gemini`` — free tier via the ``google-genai`` SDK, key in ``GEMINI_API_KEY``. Also the
+  deployed backend and the claude_sdk fallback.
 
 Modes (``LLM_MODE``): ``live`` (call + cache), ``record`` (call + cache), ``replay`` (cache
 only; a miss raises and says to re-record). CI always runs ``replay``.
