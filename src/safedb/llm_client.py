@@ -230,6 +230,10 @@ class LLMClient:
         finally:
             conn.close()
 
+    def calls_today(self) -> int:
+        """Public: number of non-cached model calls logged today (UTC)."""
+        return self._calls_today()
+
     def _calls_today(self) -> int:
         today = datetime.now(UTC).date().isoformat()
         conn = sqlite3.connect(self.db_path)

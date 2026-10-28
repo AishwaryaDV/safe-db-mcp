@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -58,9 +59,17 @@ def _tool_schema(tool: Any) -> dict[str, Any]:
 
 
 async def answer_question(
-    llm: LLMClient, database: str, question: str, config_path: str = "config.yaml"
+    llm: LLMClient,
+    database: str,
+    question: str,
+    config_path: str = "config.yaml",
+    on_request: Callable[[list[dict[str, Any]]], None] | None = None,
 ) -> AgentResult:
-    """Run one benchmark question through the live MCP server and return what happened."""
+    """Run one benchmark question through the live MCP server and return what happened.
+
+    ``on_request`` is called with the messages just before each model call (the eval uses it to
+    assert the gold answer never leaks into a request).
+    """
     params = StdioServerParameters(
         command=sys.executable,
         args=["-m", "safedb.server", "--config", config_path],
@@ -89,6 +98,8 @@ async def answer_question(
             first_run_query_seen = False
 
             while True:
+                if on_request is not None:
+                    on_request(messages)
                 llm_result = llm.generate(messages, tools=neutral_tools)
                 result.tokens_in += llm_result.usage.input_tokens
                 result.tokens_out += llm_result.usage.output_tokens
