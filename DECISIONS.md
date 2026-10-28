@@ -12,6 +12,8 @@ these.
 | 2026-10-26 | Default branch | `main` | New repo; GitHub default |
 | 2026-10-26 | Multi-DB support (Postgres/MySQL) | Out of scope for v1; recorded as the next scope | Brief lists them as stretch-only; v1 is SQLite-only |
 | 2026-10-26 | Deployment | Self-hosted on the owner's server (Ubuntu + nginx), both frontend and backend | Owner self-hosts all fullstack projects; not free hosts (Vercel / Render / Hugging Face Spaces) |
+| 2026-10-28 | Eval model (Claude backend) | `claude-sonnet-5`, thinking disabled | Owner approved Sonnet over Opus; strong at text-to-SQL, cheaper/lighter on rate limits; model is recorded in each `run.json` |
+| 2026-10-28 | Eval on both backends | Record on Claude (Sonnet 5) and also on Gemini free tier | Gemini is the deployed fallback, so the eval confirms it performs comparably through the same server (needs `GEMINI_API_KEY` when we reach it) |
 
 ## Open questions for the owner
 

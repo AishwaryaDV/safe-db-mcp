@@ -7,8 +7,8 @@ backend's function-calling format happens inside the backend.
 Backends:
 - ``claude_sdk`` — the official ``anthropic`` SDK with a zero-arg client, which resolves the
   owner's local Claude Code / ``ant auth login`` credential automatically (no API key env var
-  needed). Default model ``claude-opus-4-8``. Opus 4.8 rejects ``temperature`` and thinking
-  config, so the Claude backend omits them.
+  needed). Default model ``claude-sonnet-5``. Sonnet 5 / Opus 4.8 reject non-default
+  ``temperature``, so the Claude backend omits it and disables thinking.
 - ``gemini`` — free tier, key in ``GEMINI_API_KEY`` (implemented at the P5 record/deploy step
   once the ``google-genai`` API is confirmed; stubbed here).
 
@@ -82,7 +82,7 @@ class ClaudeBackend:
     """Backend over the owner's local Claude Code login via the anthropic SDK."""
 
     name = "claude_sdk"
-    default_model = "claude-opus-4-8"
+    default_model = "claude-sonnet-5"
     max_tokens = 4096
 
     def __init__(self) -> None:
@@ -110,7 +110,9 @@ class ClaudeBackend:
         if tools:
             # Neutral tools are already {name, description, input_schema} — Anthropic's shape.
             kwargs["tools"] = tools
-        # Note: Opus 4.8 rejects temperature / top_p / thinking config, so they are omitted.
+        # Sonnet 5 / Opus 4.8 reject non-default temperature (400), so it is omitted. Thinking
+        # is disabled to keep the multi-turn tool loop simple and the record run deterministic.
+        kwargs["thinking"] = {"type": "disabled"}
 
         response = self._client.messages.create(**kwargs)
 
@@ -309,7 +311,7 @@ class LLMClient:
         return result
 
     def _default_model_for(self, backend_name: str) -> str:
-        return "gemini-2.5-flash" if backend_name == "gemini" else "claude-opus-4-8"
+        return "gemini-2.5-flash" if backend_name == "gemini" else "claude-sonnet-5"
 
     def _call_with_fallback(
         self, backend_name, model, messages, tools, response_schema, temperature
