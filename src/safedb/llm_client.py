@@ -34,6 +34,7 @@ from safedb.config import Settings
 
 
 class ToolCall(BaseModel):
+    id: str = ""
     name: str
     arguments: dict[str, Any]
 
@@ -122,7 +123,9 @@ class ClaudeBackend:
             if block.type == "text":
                 text_parts.append(block.text)
             elif block.type == "tool_use":
-                tool_calls.append(ToolCall(name=block.name, arguments=dict(block.input)))
+                tool_calls.append(
+                    ToolCall(id=block.id, name=block.name, arguments=dict(block.input))
+                )
         usage = Usage(
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
