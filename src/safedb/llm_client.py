@@ -18,6 +18,7 @@ only; a miss raises and says to re-record). CI always runs ``replay``.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import sqlite3
@@ -37,6 +38,7 @@ class ToolCall(BaseModel):
     id: str = ""
     name: str
     arguments: dict[str, Any]
+    signature: str | None = None  # Gemini thought_signature (base64), echoed back next turn
 
 
 class Usage(BaseModel):
@@ -92,14 +94,19 @@ class ClaudeBackend:
         self._client = Anthropic()  # zero-arg: resolves the local login / profile
 
     def generate(self, model, messages, tools, response_schema, temperature):
-        # A role=="system" message is hoisted to Anthropic's top-level system parameter.
+        # A role=="system" message is hoisted to Anthropic's top-level system parameter, and
+        # the Gemini-only ``signature`` key is stripped from tool_use blocks (Anthropic rejects
+        # unknown keys).
         system = None
-        convo = []
+        convo: list[dict[str, Any]] = []
         for msg in messages:
             if msg["role"] == "system":
                 system = msg["content"]
-            else:
-                convo.append(msg)
+                continue
+            content = msg["content"]
+            if isinstance(content, list):
+                content = [{k: v for k, v in part.items() if k != "signature"} for part in content]
+            convo.append({"role": msg["role"], "content": content})
 
         kwargs: dict[str, Any] = {
             "model": model or self.default_model,
@@ -175,11 +182,12 @@ def gemini_contents(messages: list[dict[str, Any]]) -> tuple[str | None, list[An
                 parts.append(types.Part(text=part["text"]))
             elif kind == "tool_use":
                 id_to_name[part["id"]] = part["name"]
-                parts.append(
-                    types.Part(
-                        function_call=types.FunctionCall(name=part["name"], args=part["input"])
-                    )
+                fc = types.Part(
+                    function_call=types.FunctionCall(name=part["name"], args=part["input"])
                 )
+                if part.get("signature"):  # restore Gemini's thought_signature
+                    fc.thought_signature = base64.b64decode(part["signature"])
+                parts.append(fc)
             elif kind == "tool_result":
                 name = id_to_name.get(part["tool_use_id"], part["tool_use_id"])
                 try:
@@ -197,13 +205,14 @@ class GeminiBackend:
     """Free-tier Gemini backend over the google-genai SDK."""
 
     name = "gemini"
-    default_model = "gemini-2.5-flash"
+    default_model = "gemini-3.5-flash"
 
     def __init__(self, api_key: str | None = None) -> None:
         self._api_key = api_key
 
     def generate(self, model, messages, tools, response_schema, temperature):
         from google import genai
+        from google.genai import errors as genai_errors
         from google.genai import types
 
         client = genai.Client(api_key=self._api_key) if self._api_key else genai.Client()
@@ -213,9 +222,19 @@ class GeminiBackend:
             tools=gemini_tools(tools),
             temperature=temperature,
         )
-        response = client.models.generate_content(
-            model=model or self.default_model, contents=contents, config=config
-        )
+        response = None
+        for attempt in range(6):
+            try:
+                response = client.models.generate_content(
+                    model=model or self.default_model, contents=contents, config=config
+                )
+                break
+            except genai_errors.APIError as exc:
+                code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+                if code in (429, 503) and attempt < 5:
+                    time.sleep(2**attempt)  # 1, 2, 4, 8, 16s backoff on overload/rate-limit
+                    continue
+                raise
 
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
@@ -226,8 +245,19 @@ class GeminiBackend:
                     text_parts.append(part.text)
                 call = getattr(part, "function_call", None)
                 if call:
+                    raw_sig = getattr(part, "thought_signature", None)
+                    sig = (
+                        base64.b64encode(raw_sig).decode()
+                        if isinstance(raw_sig, bytes | bytearray)
+                        else raw_sig
+                    )
                     tool_calls.append(
-                        ToolCall(id=f"g{i}", name=call.name, arguments=dict(call.args or {}))
+                        ToolCall(
+                            id=f"g{i}",
+                            name=call.name,
+                            arguments=dict(call.args or {}),
+                            signature=sig,
+                        )
                     )
         usage_meta = response.usage_metadata
         usage = Usage(
@@ -409,7 +439,7 @@ class LLMClient:
         return result
 
     def _default_model_for(self, backend_name: str) -> str:
-        return "gemini-2.5-flash" if backend_name == "gemini" else "claude-sonnet-5"
+        return "gemini-3.5-flash" if backend_name == "gemini" else "claude-sonnet-5"
 
     def _call_with_fallback(
         self, backend_name, model, messages, tools, response_schema, temperature

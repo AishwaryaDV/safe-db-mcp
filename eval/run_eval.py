@@ -77,7 +77,16 @@ async def run(
     for q in questions:
 
         def _check(messages: list[dict[str, Any]], _q: dict[str, Any] = q) -> None:
-            reason = find_leak(messages, _q["gold_sql"], _q["gold_result"])
+            # Only inspect content we author (system prompt + the question). The model may
+            # legitimately write the same SQL as the gold or derive the same result — that is
+            # it being correct, not a leak. Those live in assistant tool_use blocks and
+            # tool_result turns (list content), which we exclude here.
+            authored = [
+                m
+                for m in messages
+                if m["role"] == "system" or (m["role"] == "user" and isinstance(m["content"], str))
+            ]
+            reason = find_leak(authored, _q["gold_sql"], _q["gold_result"])
             if reason:
                 raise GoldLeak(f"{_q['id']}: {reason}")
 

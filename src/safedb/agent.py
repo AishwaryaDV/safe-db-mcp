@@ -122,6 +122,7 @@ async def answer_question(
                             "id": call.id,
                             "name": call.name,
                             "input": call.arguments,
+                            "signature": call.signature,
                         }
                     )
                 messages.append({"role": "assistant", "content": assistant_content})
