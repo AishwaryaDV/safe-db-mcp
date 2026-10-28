@@ -133,17 +133,108 @@ class ClaudeBackend:
         return ("\n".join(text_parts) if text_parts else None, tool_calls, usage)
 
 
+def gemini_tools(tools: list[dict[str, Any]] | None) -> Any:
+    """Translate neutral tools into Gemini function declarations."""
+    from google.genai import types
+
+    if not tools:
+        return None
+    declarations = [
+        types.FunctionDeclaration(
+            name=t["name"],
+            description=t.get("description", ""),
+            parameters_json_schema=t.get("input_schema") or {"type": "object", "properties": {}},
+        )
+        for t in tools
+    ]
+    return [types.Tool(function_declarations=declarations)]
+
+
+def gemini_contents(messages: list[dict[str, Any]]) -> tuple[str | None, list[Any]]:
+    """Translate neutral messages into (system_instruction, Gemini contents)."""
+    from google.genai import types
+
+    system: str | None = None
+    contents: list[Any] = []
+    id_to_name: dict[str, str] = {}
+
+    for msg in messages:
+        role, content = msg["role"], msg["content"]
+        if role == "system":
+            system = content if isinstance(content, str) else " ".join(content)
+            continue
+        if isinstance(content, str):
+            gem_role = "model" if role == "assistant" else "user"
+            contents.append(types.Content(role=gem_role, parts=[types.Part(text=content)]))
+            continue
+
+        parts = []
+        for part in content:
+            kind = part["type"]
+            if kind == "text":
+                parts.append(types.Part(text=part["text"]))
+            elif kind == "tool_use":
+                id_to_name[part["id"]] = part["name"]
+                parts.append(
+                    types.Part(
+                        function_call=types.FunctionCall(name=part["name"], args=part["input"])
+                    )
+                )
+            elif kind == "tool_result":
+                name = id_to_name.get(part["tool_use_id"], part["tool_use_id"])
+                try:
+                    response = json.loads(part["content"])
+                except (ValueError, TypeError):
+                    response = {"result": part["content"]}
+                if not isinstance(response, dict):
+                    response = {"result": response}
+                parts.append(types.Part.from_function_response(name=name, response=response))
+        contents.append(types.Content(role="model" if role == "assistant" else "user", parts=parts))
+    return system, contents
+
+
 class GeminiBackend:
-    """Free-tier Gemini backend. Implemented at the P5 record/deploy step."""
+    """Free-tier Gemini backend over the google-genai SDK."""
 
     name = "gemini"
     default_model = "gemini-2.5-flash"
 
+    def __init__(self, api_key: str | None = None) -> None:
+        self._api_key = api_key
+
     def generate(self, model, messages, tools, response_schema, temperature):
-        raise NotImplementedError(
-            "The gemini backend is implemented at P5 once the google-genai API is confirmed "
-            "and GEMINI_API_KEY is available. Use LLM_BACKEND=claude_sdk for development."
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self._api_key) if self._api_key else genai.Client()
+        system, contents = gemini_contents(messages)
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            tools=gemini_tools(tools),
+            temperature=temperature,
         )
+        response = client.models.generate_content(
+            model=model or self.default_model, contents=contents, config=config
+        )
+
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+        candidate = response.candidates[0] if response.candidates else None
+        if candidate and candidate.content and candidate.content.parts:
+            for i, part in enumerate(candidate.content.parts):
+                if getattr(part, "text", None):
+                    text_parts.append(part.text)
+                call = getattr(part, "function_call", None)
+                if call:
+                    tool_calls.append(
+                        ToolCall(id=f"g{i}", name=call.name, arguments=dict(call.args or {}))
+                    )
+        usage_meta = response.usage_metadata
+        usage = Usage(
+            input_tokens=getattr(usage_meta, "prompt_token_count", 0) or 0,
+            output_tokens=getattr(usage_meta, "candidates_token_count", 0) or 0,
+        )
+        return ("\n".join(text_parts) if text_parts else None, tool_calls, usage)
 
 
 _LLM_CALLS_SCHEMA = """
@@ -189,7 +280,7 @@ class LLMClient:
         if name == "claude_sdk":
             return ClaudeBackend()
         if name == "gemini":
-            return GeminiBackend()
+            return GeminiBackend(api_key=self.settings.gemini_api_key)
         raise ValueError(f"unknown backend {name!r}")
 
     # --- cache ---
