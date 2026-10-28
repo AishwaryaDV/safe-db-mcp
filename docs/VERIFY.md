@@ -64,3 +64,18 @@
 - [ ] README meets the standard (hostile-query table, five written-up failures, Related-work section)
 - [ ] Live link + demo GIF in the README
 **Deploy:** self-hosted on the owner's server (Ubuntu + nginx), frontend and backend, like the other fullstack projects — not free hosts. See `DECISIONS.md`.
+
+---
+
+## Deferred to the final capture/deploy pass (owner-in-the-loop)
+
+Code and automated tests for every phase are built straight through; these human-only tasks
+are batched at the end:
+
+- [ ] P4 — record the Claude Desktop demo GIF/screenshot; revise `tool_descriptions.py` once
+      based on anything the model fumbled.
+- [ ] P5 — provide an LLM backend for the one-time eval `record` run (likely the local
+      `claude_sdk` login; else a `GEMINI_API_KEY`), then commit the baseline cache + metrics.
+- [ ] P6 — score the 10 ambiguity answers (good/bad) in `ambiguity_scores.csv`.
+- [ ] P7 — deploy frontend + backend to the owner's server; capture the final demo GIF and
+      add the live link to the README.
