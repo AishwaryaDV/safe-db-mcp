@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from safedb import db
+from safedb import db, hints
 from safedb.safety import QueryRejected, validate_sql
 
 # Authorizer action codes that a read-only query legitimately needs. Everything else is denied.
@@ -84,6 +84,7 @@ def run_query(
     timeout_s: float,
     max_cell_chars: int,
     max_sql_chars: int,
+    hints_enabled: bool = False,
 ) -> QueryResult:
     """Validate and run a single read-only query, applying all runtime caps."""
     try:
@@ -127,14 +128,29 @@ def run_query(
     except sqlite3.Error as exc:
         error_type, message = _classify(exc, timed_out)
         elapsed_ms = int((time.monotonic() - started) * 1000)
-        return QueryResult(ok=False, error_type=error_type, message=message, elapsed_ms=elapsed_ms)
+        hint = _hint_for(path, error_type, message, hints_enabled)
+        return QueryResult(
+            ok=False, error_type=error_type, message=message, hint=hint, elapsed_ms=elapsed_ms
+        )
     finally:
         conn.set_progress_handler(None, _PROGRESS_STEPS)
         conn.close()
 
 
+def _hint_for(path: str | Path, error_type: str, message: str, enabled: bool) -> str | None:
+    """A difflib hint for unknown objects, only when hints are enabled."""
+    if enabled and error_type == "unknown_object":
+        return hints.hint_for_unknown_object(path, message)
+    return None
+
+
 def explain_query(
-    path: str | Path, sql: str, *, max_sql_chars: int, timeout_s: float
+    path: str | Path,
+    sql: str,
+    *,
+    max_sql_chars: int,
+    timeout_s: float,
+    hints_enabled: bool = False,
 ) -> ExplainResult:
     """Validate the SQL and return SQLite's query plan without executing the query."""
     try:
@@ -161,7 +177,8 @@ def explain_query(
         return ExplainResult(ok=True, plan=plan)
     except sqlite3.Error as exc:
         error_type, message = _classify(exc, timed_out)
-        return ExplainResult(ok=False, error_type=error_type, message=message)
+        hint = _hint_for(path, error_type, message, hints_enabled)
+        return ExplainResult(ok=False, error_type=error_type, message=message, hint=hint)
     finally:
         conn.set_progress_handler(None, _PROGRESS_STEPS)
         conn.close()
