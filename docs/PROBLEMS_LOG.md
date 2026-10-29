@@ -98,3 +98,27 @@ actually went wrong and what we did about it" that doesn't show up in the commit
   **Solution:** a two-source plan — questions + gold SQL from `xlangai/spider`, and the SQLite
   databases per-file from `premai-io/spider` (fetch only the ones the slice uses; no 1 GB Drive
   zip). Recorded in `DECISIONS.md` / `DATA_SOURCES.md`.
+
+- **The `claude_sdk` backend first used the raw `anthropic` API SDK, which demanded an API
+  key** — but the owner (like Offroute / reddit-outreach) uses the **Claude Code subscription,
+  no API keys**.
+  **Solution:** switched the Claude path to the **Claude Agent SDK** (`claude-agent-sdk`), which
+  runs on the local Claude Code login. Because that SDK runs its own loop (it won't hand a tool
+  call back for us to execute), the Claude path is **per-question** — the Agent SDK drives the
+  MCP server directly — while Gemini stays on our per-turn loop. Both score identically.
+
+- **Gemini free tier = 20 `generate_content` requests/day/model** — far below the ~100–150 an
+  agentic 50-question eval needs, so the full baseline can't be recorded on the free tier in a
+  day. **Solution:** documented the limit; the baseline is recorded on the Claude subscription
+  (Sonnet) instead, with Gemini kept as the deployed backend + a smaller comparison.
+
+- **Gemini model/compat churn:** `gemini-2.5-flash` is retired for new keys (404); Gemini 3.x
+  requires echoing a `thought_signature` back on `functionCall` parts (400 without it); and the
+  endpoint throws transient 503/429.
+  **Solution:** pin `gemini-3.5-flash`, thread the `thought_signature` through the neutral
+  `ToolCall`, and add exponential-backoff retry for 429/503.
+
+- **The leak detector false-positived when the model wrote the same SQL as the gold** (the
+  model being *correct* looked like a leak).
+  **Solution:** scope the leak check to content we *author* (system prompt + question), not the
+  model's own tool calls or the results derived from them.
