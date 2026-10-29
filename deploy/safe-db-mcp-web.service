@@ -1,0 +1,19 @@
+# Next.js dashboard (production server). Build once with `npm run build`, then this serves it.
+# Copy to /etc/systemd/system/, then: systemctl daemon-reload && systemctl enable --now safe-db-mcp-web
+[Unit]
+Description=safe-db-mcp web dashboard (Next.js)
+After=network.target
+
+[Service]
+Type=simple
+User=safedb
+WorkingDirectory=/opt/safe-db-mcp/web
+Environment=NODE_ENV=production
+Environment=PORT=3000
+# NEXT_PUBLIC_API_URL is baked in at build time; rebuild if the public host changes.
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

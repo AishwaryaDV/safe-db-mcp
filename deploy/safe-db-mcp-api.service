@@ -1,0 +1,17 @@
+# FastAPI backend (audit, eval, capped /api/ask).
+# Copy to /etc/systemd/system/, then: systemctl daemon-reload && systemctl enable --now safe-db-mcp-api
+[Unit]
+Description=safe-db-mcp API (FastAPI/uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=safedb
+WorkingDirectory=/opt/safe-db-mcp
+EnvironmentFile=/opt/safe-db-mcp/.env
+ExecStart=/opt/safe-db-mcp/.venv/bin/uvicorn safedb.api:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
