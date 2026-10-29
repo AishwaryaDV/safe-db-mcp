@@ -1,0 +1,53 @@
+{
+  "final_sql": "SELECT Name FROM shop WHERE Shop_ID NOT IN (SELECT Shop_ID FROM hiring WHERE Shop_ID IS NOT NULL) LIMIT 100",
+  "final_columns": [
+    "Name"
+  ],
+  "final_rows": [
+    [
+      "FC Honka"
+    ],
+    [
+      "KuPS"
+    ],
+    [
+      "IFK Mariehamn"
+    ]
+  ],
+  "answer": "Three shops have no hiring records: **FC Honka**, **KuPS**, and **IFK Mariehamn**.\n\nI took \"do not hire any employee\" to mean the shop's `Shop_ID` never appears in the `hiring` table. I did not check whether the hired employees still exist in the `employee` table.",
+  "steps": [
+    {
+      "tool": "describe_schema",
+      "args": {},
+      "ok": null,
+      "error_type": null
+    },
+    {
+      "tool": "describe_schema",
+      "args": {
+        "database": "employee_hire_evaluation"
+      },
+      "ok": null,
+      "error_type": null
+    },
+    {
+      "tool": "run_query",
+      "args": {
+        "database": "employee_hire_evaluation",
+        "sql": "SELECT Name FROM shop WHERE Shop_ID NOT IN (SELECT Shop_ID FROM hiring WHERE Shop_ID IS NOT NULL) LIMIT 100"
+      },
+      "ok": true,
+      "error_type": null
+    }
+  ],
+  "tool_calls": 3,
+  "blocked_count": 0,
+  "first_try_valid": true,
+  "recovered": false,
+  "tokens_in": 8,
+  "tokens_out": 358,
+  "latency_ms": 27040,
+  "backend": "claude_sdk",
+  "model": "claude-sonnet-5-5",
+  "reason": null
+}

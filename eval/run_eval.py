@@ -26,8 +26,10 @@ from safedb.tool_descriptions import descriptions_hash
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SLICE_PATH = REPO_ROOT / "eval" / "questions" / "slice.jsonl"
 RESULTS_DIR = REPO_ROOT / "eval" / "results"
+BASELINE_PATH = REPO_ROOT / "eval" / "baseline.json"
 SLICE_SEED = 42
 MAX_REQUESTS_PER_QUESTION = 6  # question + up to 5 tool-call turns
+REGRESSION_TOLERANCE = 0.03  # fail CI if accuracy drops more than 3 points below baseline
 
 
 class GoldLeak(RuntimeError):
@@ -49,7 +51,12 @@ def _load_split(split: str) -> list[dict[str, Any]]:
 
 
 async def run(
-    split: str, config_path: str, mode: str, force: bool, limit: int | None = None
+    split: str,
+    config_path: str,
+    mode: str,
+    force: bool,
+    limit: int | None = None,
+    gate: bool = False,
 ) -> str:
     # Imported here so unit tests that import this module don't require mcp / the Agent SDK.
     from eval.claude_runner import answer_question_claude
@@ -101,6 +108,7 @@ async def run(
                 "db": q["db"],
                 "question": q["question"],
                 "difficulty": q["difficulty"],
+                "scorable": bool(q["gold_result"]),  # empty gold = unscorable (data quirk)
                 "steps": [asdict(s) for s in result.steps],
                 "final_sql": result.final_sql,
                 "match": match,
@@ -140,6 +148,19 @@ async def run(
 
     print(f"\n{run_id}  ->  {out_dir}")
     print(json.dumps(metrics, indent=2))
+
+    if gate:
+        baseline = json.loads(BASELINE_PATH.read_text())
+        current = metrics["execution_accuracy"]
+        base = baseline["execution_accuracy"]
+        floor = base - REGRESSION_TOLERANCE
+        print(f"\ngate: accuracy {current} vs baseline {base} (floor {floor:.4f})")
+        if current < floor:
+            raise SystemExit(
+                f"REGRESSION: execution accuracy {current} is more than "
+                f"{REGRESSION_TOLERANCE} below baseline {baseline['execution_accuracy']}"
+            )
+        print("gate: OK")
     return run_id
 
 
@@ -150,8 +171,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mode", choices=["live", "record", "replay"], default="replay")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--gate", action="store_true", help="fail on >3pt accuracy drop vs baseline"
+    )
     args = parser.parse_args(argv)
-    asyncio.run(run(args.split, args.config, args.mode, args.force, args.limit))
+    asyncio.run(run(args.split, args.config, args.mode, args.force, args.limit, args.gate))
     return 0
 
 

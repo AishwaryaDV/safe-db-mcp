@@ -72,9 +72,14 @@ def compute_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
     if n == 0:
         return {"questions": 0}
 
-    matches = sum(1 for r in records if r["match"])
-    first_try = sum(1 for r in records if r["first_try_valid"])
-    failed_first = [r for r in records if not r["first_try_valid"]]
+    # A question whose gold_result is empty is unscorable (here: a Spider-mirror whitespace
+    # quirk makes the gold join return nothing), so it is excluded from accuracy.
+    scorable = [r for r in records if r.get("scorable", True)]
+    denom = len(scorable) or 1
+
+    matches = sum(1 for r in scorable if r["match"])
+    first_try = sum(1 for r in scorable if r["first_try_valid"])
+    failed_first = [r for r in scorable if not r["first_try_valid"]]
     recovered = sum(1 for r in failed_first if r["match"])
 
     run_query_attempts = sum(
@@ -86,13 +91,15 @@ def compute_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
     latencies = [r["latency_ms"] for r in records]
 
     by_difficulty: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for r in records:
+    for r in scorable:
         by_difficulty[r.get("difficulty", "unknown")].append(r)
 
     return {
         "questions": n,
-        "execution_accuracy": round(matches / n, 4),
-        "first_try_valid_rate": round(first_try / n, 4),
+        "scored": len(scorable),
+        "excluded_unscorable": n - len(scorable),
+        "execution_accuracy": round(matches / denom, 4),
+        "first_try_valid_rate": round(first_try / denom, 4),
         "recovery_rate": round(recovered / len(failed_first), 4) if failed_first else 0.0,
         "blocked_query_rate": round(blocked / run_query_attempts, 4) if run_query_attempts else 0.0,
         "tool_calls_mean": round(_mean(tool_calls), 2),

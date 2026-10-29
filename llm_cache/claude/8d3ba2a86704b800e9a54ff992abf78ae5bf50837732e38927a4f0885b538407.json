@@ -1,0 +1,47 @@
+{
+  "final_sql": "SELECT COUNT(DISTINCT department_id) AS n FROM Degree_Programs LIMIT 1",
+  "final_columns": [
+    "n"
+  ],
+  "final_rows": [
+    [
+      10
+    ]
+  ],
+  "answer": "**10** departments offer at least one degree program.\n\nI counted the distinct `department_id` values in `Degree_Programs`. I assumed \"offers any degree\" means a department has at least one row there. The `Departments` table has 15 rows, so 5 departments have no degree program.",
+  "steps": [
+    {
+      "tool": "describe_schema",
+      "args": {},
+      "ok": null,
+      "error_type": null
+    },
+    {
+      "tool": "describe_schema",
+      "args": {
+        "database": "student_transcripts_tracking"
+      },
+      "ok": null,
+      "error_type": null
+    },
+    {
+      "tool": "run_query",
+      "args": {
+        "database": "student_transcripts_tracking",
+        "sql": "SELECT COUNT(DISTINCT department_id) AS n FROM Degree_Programs LIMIT 1"
+      },
+      "ok": true,
+      "error_type": null
+    }
+  ],
+  "tool_calls": 3,
+  "blocked_count": 0,
+  "first_try_valid": true,
+  "recovered": false,
+  "tokens_in": 8,
+  "tokens_out": 314,
+  "latency_ms": 12598,
+  "backend": "claude_sdk",
+  "model": "claude-sonnet-5-5",
+  "reason": null
+}

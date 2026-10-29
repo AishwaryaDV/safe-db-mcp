@@ -1,0 +1,102 @@
+{
+  "final_sql": "SELECT Name, Age FROM conductor ORDER BY Age ASC LIMIT 100",
+  "final_columns": [
+    "Name",
+    "Age"
+  ],
+  "final_rows": [
+    [
+      "Antal Dor\u00e1ti",
+      40
+    ],
+    [
+      "Igor Stravinsky",
+      41
+    ],
+    [
+      "Colin Davis",
+      42
+    ],
+    [
+      "Michael Tilson Thomas",
+      42
+    ],
+    [
+      "Paul Jorgensen",
+      43
+    ],
+    [
+      "Antal Brown",
+      43
+    ],
+    [
+      "Charles Dutoit",
+      43
+    ],
+    [
+      "Seiji Ozawa",
+      43
+    ],
+    [
+      "Valeri Gergiev",
+      47
+    ],
+    [
+      "Pierre Boulez",
+      49
+    ],
+    [
+      "Gerard Schwarz",
+      50
+    ],
+    [
+      "Robert Craft",
+      63
+    ]
+  ],
+  "answer": "Here are the conductors ordered by age, youngest first:\n\n| Name | Age |\n|---|---|\n| Antal Dor\u00e1ti | 40 |\n| Igor Stravinsky | 41 |\n| Colin Davis | 42 |\n| Michael Tilson Thomas | 42 |\n| Paul Jorgensen | 43 |\n| Antal Brown | 43 |\n| Charles Dutoit | 43 |\n| Seiji Ozawa | 43 |\n| Valeri Gergiev | 47 |\n| Pierre Boulez | 49 |\n| Gerard Schwarz | 50 |\n| Robert Craft | 63 |\n\n- **Order:** You didn't say which direction, so I used ascending (youngest first). For oldest first, reverse the list.\n- **Ties:** Conductors with the same age (such as the four aged 43) have no defined order among themselves.\n- **Coverage:** The `conductor` table has 12 rows and all of them are listed.",
+  "steps": [
+    {
+      "tool": "describe_schema",
+      "args": {},
+      "ok": null,
+      "error_type": null
+    },
+    {
+      "tool": "describe_schema",
+      "args": {
+        "database": "orchestra"
+      },
+      "ok": null,
+      "error_type": null
+    },
+    {
+      "tool": "run_query",
+      "args": {
+        "database": "orchestra",
+        "query": "SELECT Name, Age FROM conductor ORDER BY Age ASC LIMIT 100"
+      },
+      "ok": null,
+      "error_type": null
+    },
+    {
+      "tool": "run_query",
+      "args": {
+        "database": "orchestra",
+        "sql": "SELECT Name, Age FROM conductor ORDER BY Age ASC LIMIT 100"
+      },
+      "ok": true,
+      "error_type": null
+    }
+  ],
+  "tool_calls": 4,
+  "blocked_count": 0,
+  "first_try_valid": false,
+  "recovered": true,
+  "tokens_in": 10,
+  "tokens_out": 640,
+  "latency_ms": 21435,
+  "backend": "claude_sdk",
+  "model": "claude-sonnet-5-5",
+  "reason": null
+}
