@@ -18,6 +18,8 @@ dependencies = [
     "certifi>=2024.0",
     "sqlglot>=25.0",
     "anthropic>=0.40",
+    "fastapi>=0.110",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
