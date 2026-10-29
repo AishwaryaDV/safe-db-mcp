@@ -12,11 +12,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import subprocess
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from eval.score import compute_metrics, find_leak, result_matches
 from safedb.config import Settings, load_config
@@ -50,6 +53,16 @@ def _load_split(split: str) -> list[dict[str, Any]]:
     return [q for q in questions if q["split"] == split]
 
 
+def _apply_experiment(experiment: str | None, config_path: str) -> tuple[str, str]:
+    """Load an experiment config, apply its env overrides, return (name, server_config)."""
+    if not experiment:
+        return "baseline", config_path
+    exp = yaml.safe_load(Path(experiment).read_text())
+    for key, value in (exp.get("env") or {}).items():
+        os.environ[key] = str(value)  # the MCP server subprocess inherits this
+    return exp["name"], exp.get("server_config", config_path)
+
+
 async def run(
     split: str,
     config_path: str,
@@ -57,12 +70,14 @@ async def run(
     force: bool,
     limit: int | None = None,
     gate: bool = False,
+    experiment: str | None = None,
 ) -> str:
     # Imported here so unit tests that import this module don't require mcp / the Agent SDK.
     from eval.claude_runner import answer_question_claude
     from safedb.agent import answer_question
     from safedb.server import ANALYST_PROMPT
 
+    exp_name, config_path = _apply_experiment(experiment, config_path)
     questions = _load_split(split)
     if limit:
         questions = questions[:limit]
@@ -70,7 +85,7 @@ async def run(
     settings.llm_mode = mode
     backend = settings.llm_backend
 
-    run_id = f"{split}-{backend}-{mode}-{datetime.now(UTC):%Y%m%dT%H%M%S}"
+    run_id = f"{split}-{exp_name}-{backend}-{mode}-{datetime.now(UTC):%Y%m%dT%H%M%S}"
     llm = LLMClient(settings, db_path=load_config(config_path).audit_db, run_id=run_id)
 
     if mode in ("live", "record"):
@@ -135,6 +150,7 @@ async def run(
     run_meta = {
         "run_id": run_id,
         "split": split,
+        "experiment": exp_name,
         "mode": mode,
         "seed": SLICE_SEED,
         "git_sha": _git_sha(),
@@ -174,8 +190,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--gate", action="store_true", help="fail on >3pt accuracy drop vs baseline"
     )
+    parser.add_argument("--experiment", help="path to an eval/configs/*.yaml experiment")
     args = parser.parse_args(argv)
-    asyncio.run(run(args.split, args.config, args.mode, args.force, args.limit, args.gate))
+    asyncio.run(
+        run(args.split, args.config, args.mode, args.force, args.limit, args.gate, args.experiment)
+    )
     return 0
 
 

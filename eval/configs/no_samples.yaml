@@ -1,0 +1,4 @@
+# Experiment 1: no sample rows in describe_schema (sample_rows_default = 0).
+name: no_samples
+server_config: eval/eval_config_no_samples.yaml
+env: {}
