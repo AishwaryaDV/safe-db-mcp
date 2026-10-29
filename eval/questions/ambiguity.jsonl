@@ -1,0 +1,10 @@
+{"id": "a01", "db": "chinook", "question": "Who are our top customers?", "ambiguity": "by total spend or by number of invoices", "unverified": true}
+{"id": "a02", "db": "chinook", "question": "What is our best-selling genre?", "ambiguity": "by tracks sold or by revenue", "unverified": true}
+{"id": "a03", "db": "chinook", "question": "Which artist is the most popular?", "ambiguity": "by number of albums, number of tracks, or total sales", "unverified": true}
+{"id": "a04", "db": "chinook", "question": "Show me the longest tracks.", "ambiguity": "by milliseconds or by bytes, and how many to return", "unverified": true}
+{"id": "a05", "db": "chinook", "question": "Where are our biggest customers?", "ambiguity": "group by country or city, and rank by spend or by count", "unverified": true}
+{"id": "a06", "db": "chinook", "question": "What are our most expensive albums?", "ambiguity": "by sum of track unit prices or by average, since albums have no price", "unverified": true}
+{"id": "a07", "db": "chinook", "question": "Which employees perform best?", "ambiguity": "by number of customers supported or by total sales of their customers", "unverified": true}
+{"id": "a08", "db": "chinook", "question": "List recent invoices.", "ambiguity": "how recent (date cutoff) and how many to return", "unverified": true}
+{"id": "a09", "db": "chinook", "question": "What music do customers like most?", "ambiguity": "genre, artist, or track, and measured by plays or by sales", "unverified": true}
+{"id": "a10", "db": "chinook", "question": "Show the top playlists.", "ambiguity": "by number of tracks or by total duration", "unverified": true}
