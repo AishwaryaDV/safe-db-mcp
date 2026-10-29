@@ -51,48 +51,49 @@ def _load_split(split: str) -> list[dict[str, Any]]:
 async def run(
     split: str, config_path: str, mode: str, force: bool, limit: int | None = None
 ) -> str:
-    from safedb.agent import answer_question  # imported here so unit tests don't need mcp
+    # Imported here so unit tests that import this module don't require mcp / the Agent SDK.
+    from eval.claude_runner import answer_question_claude
+    from safedb.agent import answer_question
+    from safedb.server import ANALYST_PROMPT
 
     questions = _load_split(split)
     if limit:
         questions = questions[:limit]
     settings = Settings()
     settings.llm_mode = mode
+    backend = settings.llm_backend
 
-    run_id = f"{split}-{mode}-{datetime.now(UTC):%Y%m%dT%H%M%S}"
-    llm = LLMClient(
-        settings,
-        db_path=load_config(config_path).audit_db,
-        run_id=run_id,
-    )
+    run_id = f"{split}-{backend}-{mode}-{datetime.now(UTC):%Y%m%dT%H%M%S}"
+    llm = LLMClient(settings, db_path=load_config(config_path).audit_db, run_id=run_id)
 
     if mode in ("live", "record"):
-        max_requests = len(questions) * MAX_REQUESTS_PER_QUESTION
-        remaining = settings.daily_llm_budget - llm.calls_today()
-        print(f"budget: up to {max_requests} requests needed; {remaining} left today")
-        if max_requests > remaining and not force:
-            raise SystemExit("would exceed the daily LLM budget; pass --force to override")
+        if backend == "gemini":
+            max_requests = len(questions) * MAX_REQUESTS_PER_QUESTION
+            remaining = settings.daily_llm_budget - llm.calls_today()
+            print(f"budget: up to {max_requests} Gemini requests needed; {remaining} left today")
+            if max_requests > remaining and not force:
+                raise SystemExit("would exceed the daily LLM budget; pass --force to override")
+        else:
+            print("recording on the Claude subscription via the Agent SDK (model: sonnet)")
 
     records: list[dict[str, Any]] = []
     for q in questions:
+        # Leak guard: the gold answer must never appear in anything we author (system + question).
+        # The model writing the same SQL or deriving the same result is it being correct, not a
+        # leak, so we only inspect our authored content.
+        authored = [
+            {"role": "system", "content": ANALYST_PROMPT.format(database=q["db"])},
+            {"role": "user", "content": q["question"]},
+        ]
+        reason = find_leak(authored, q["gold_sql"], q["gold_result"])
+        if reason:
+            raise GoldLeak(f"{q['id']}: {reason}")
 
-        def _check(messages: list[dict[str, Any]], _q: dict[str, Any] = q) -> None:
-            # Only inspect content we author (system prompt + the question). The model may
-            # legitimately write the same SQL as the gold or derive the same result — that is
-            # it being correct, not a leak. Those live in assistant tool_use blocks and
-            # tool_result turns (list content), which we exclude here.
-            authored = [
-                m
-                for m in messages
-                if m["role"] == "system" or (m["role"] == "user" and isinstance(m["content"], str))
-            ]
-            reason = find_leak(authored, _q["gold_sql"], _q["gold_result"])
-            if reason:
-                raise GoldLeak(f"{_q['id']}: {reason}")
+        if backend == "claude_sdk":
+            result = await answer_question_claude(q["db"], q["question"], config_path, mode)
+        else:
+            result = await answer_question(llm, q["db"], q["question"], config_path=config_path)
 
-        result = await answer_question(
-            llm, q["db"], q["question"], config_path=config_path, on_request=_check
-        )
         match = result_matches(result.final_rows, q["gold_result"], q["order_matters"])
         records.append(
             {
