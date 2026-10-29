@@ -69,7 +69,7 @@ export default function EvalPage() {
             <Metric label="Execution accuracy" value={pct(m.execution_accuracy)} />
             <Metric label="First-try valid" value={pct(m.first_try_valid_rate)} />
             <Metric label="Recovered" value={pct(m.recovery_rate)} />
-            <Metric label="Blocked" value={m.blocked_total != null ? String(m.blocked_total) : "—"} />
+            <Metric label="Blocked-query rate" value={pct(m.blocked_query_rate)} />
           </div>
           <p className="text-sm text-stone-400">
             {run.model} · {run.date} · scored {m.scored ?? "?"} questions

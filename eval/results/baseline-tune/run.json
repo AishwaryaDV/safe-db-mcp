@@ -1,0 +1,33 @@
+{
+  "run_id": "baseline-tune",
+  "split": "tune",
+  "mode": "replay",
+  "seed": 42,
+  "git_sha": "ba322c2e0f0c9a6a4f216b158402242bdde2cf78",
+  "tool_descriptions_hash": "484997fac5c3404cd112aa798ba2e72ff2d84c9d1d937a66385d6bb196541dcc",
+  "backend": "claude_sdk",
+  "model": "claude-sonnet-5-5",
+  "date": "2026-10-29T09:42:01.461772+00:00",
+  "metrics": {
+    "questions": 30,
+    "scored": 26,
+    "excluded_unscorable": 4,
+    "execution_accuracy": 0.4231,
+    "first_try_valid_rate": 0.9231,
+    "recovery_rate": 0.5,
+    "blocked_query_rate": 0.0,
+    "tool_calls_mean": 3.17,
+    "tool_calls_p95": 4.0,
+    "latency_ms_mean": 17437.4,
+    "latency_ms_p95": 28297.8,
+    "tokens_in_mean": 8.3,
+    "tokens_out_mean": 610.0,
+    "accuracy_by_difficulty": {
+      "easy": 0.625,
+      "extra": 0.2857,
+      "hard": 0.0,
+      "medium": 0.5
+    }
+  },
+  "experiment": "baseline"
+}
