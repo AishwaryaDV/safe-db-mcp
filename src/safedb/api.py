@@ -93,7 +93,7 @@ def create_app(
         conn.close()
 
     app = FastAPI(title="safe-db-mcp")
-    origins = [o for o in (settings.model_dump().get("allowed_origins") or "").split(",") if o]
+    origins = [o for o in settings.allowed_origins.split(",") if o]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins or ["*"],

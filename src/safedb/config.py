@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     daily_llm_budget: int = 200
     hints: Literal["on", "off"] = "on"
+    allowed_origins: str = ""  # comma-separated CORS origins for the API (empty = allow all)
 
 
 def load_config(path: str | Path = "config.yaml") -> AppConfig:

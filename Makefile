@@ -14,11 +14,14 @@ setup: ## Create the virtualenv, install the package, download Chinook
 run: ## Start the MCP server over stdio
 	$(VENV)/bin/safedb-mcp --config config.yaml
 
+api: ## Start the FastAPI backend
+	$(VENV)/bin/uvicorn safedb.api:app --host 0.0.0.0 --port 8000
+
 test: ## Run the test suite (everything except live_llm)
 	$(PY) -m pytest -m "not live_llm"
 
-eval: ## Replay the committed baseline eval run (available from P5)
-	$(PY) -m eval.run_eval --split tune --config eval/configs/baseline.yaml --mode replay
+eval: ## Replay the committed baseline and run the regression gate (no model, no key)
+	$(PY) -m eval.run_eval --split tune --mode replay --gate
 
 lint: ## Ruff lint and format check
 	$(RUFF) check .
