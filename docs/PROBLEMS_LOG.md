@@ -132,3 +132,37 @@ actually went wrong and what we did about it" that doesn't show up in the commit
   (reported as `excluded_unscorable` in the metrics); re-scored for free via replay, no
   re-record. The honest tune baseline is over the 26 scorable questions (holdout has none).
   A future `build_slice` could also skip empty-gold at selection time.
+
+## P6 — Experiments & comparison
+
+- **The `make eval` target passed an experiment config where a server config was expected.**
+  Experiment descriptors (`eval/configs/*.yaml`) hold `{name, server_config, env}` and are
+  selected with `--experiment`; `--config` expects a *server* config. Passing the former as the
+  latter would misparse.
+  **Solution:** `make eval` now runs the key-free replay gate
+  (`run_eval --split tune --mode replay --gate`), which is what we actually want to reproduce.
+
+- **`compare.py` raised `KeyError: 'questions'`** because older run metadata used `questions`
+  while newer runs report `scored`.
+  **Solution:** read `m.get('scored', m.get('questions'))` so both shapes format.
+
+## P7 — API & dashboard
+
+- **CORS origins come from the environment, not code.** Hard-coding origins would break the
+  self-hosted deploy.
+  **Solution:** added `ALLOWED_ORIGINS` to `Settings` (comma-separated; empty = allow all) and
+  wired it into the FastAPI CORS middleware.
+
+- **SSE streaming dies behind a default nginx proxy.** nginx buffers proxied responses, so the
+  `/api/ask` event stream arrives all at once (or times out) instead of token-by-token.
+  **Solution:** the reference `deploy/nginx.conf` sets `proxy_buffering off` and a long
+  `proxy_read_timeout` on the `/api/` location.
+
+- **`NEXT_PUBLIC_API_URL` is baked in at build time.** The dashboard can't learn the API host at
+  runtime, so a wrong value means every fetch hits the wrong origin.
+  **Solution:** documented it in `web/.env.example` and the deploy guide — set it before
+  `npm run build`, and rebuild if the public host changes.
+
+- **`eval/results/` is gitignored, so a fresh deploy had an empty Eval page.**
+  **Solution:** force-committed one canonical run (`eval/results/baseline-tune/`) so the
+  dashboard ships with real data; further runs stay ignored.
