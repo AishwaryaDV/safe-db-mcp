@@ -121,32 +121,10 @@ def _write_cache(key: str, result: AgentResult) -> None:
     (CACHE_DIR / f"{key}.json").write_text(json.dumps(asdict(result), indent=2))
 
 
-async def answer_question_claude(
-    db: str,
-    question: str,
-    config_path: str,
-    mode: str,
-    model: str = DEFAULT_MODEL,
+async def _run_agent_sdk(
+    db: str, question: str, config_path: str, model: str, system_prompt: str
 ) -> AgentResult:
-    """Run one question via the Claude Agent SDK against the MCP server; honour record/replay."""
-    system_prompt = ANALYST_PROMPT.format(database=db)
-    key = _cache_key(db, question, model, system_prompt)
-
-    if mode == "replay":
-        cached = _read_cache(key)
-        if cached is None:
-            raise CacheMiss(f"claude cache miss for {db}/{question[:30]}...; re-record")
-        return cached
-    cached = _read_cache(key)
-    if cached is not None:
-        return cached
-
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ResultMessage,
-        query,
-    )
+    from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, query
 
     options = ClaudeAgentOptions(
         model=model,
@@ -183,7 +161,53 @@ async def answer_question_claude(
             if isinstance(content, list):
                 blocks.extend(content)
     latency_ms = int((time.monotonic() - started) * 1000)
+    return build_result_from_blocks(blocks, answer, usage, model_id, latency_ms)
 
-    result = build_result_from_blocks(blocks, answer, usage, model_id, latency_ms)
+
+async def _gemini_fallback(db: str, question: str, config_path: str, mode: str) -> AgentResult:
+    """Degrade to the Gemini per-turn path when the Claude SDK errors (production safety net)."""
+    from safedb.agent import answer_question
+    from safedb.config import Settings
+    from safedb.llm_client import LLMClient
+
+    settings = Settings()
+    settings.llm_backend = "gemini"
+    settings.llm_mode = mode
+    llm = LLMClient(settings)
+    return await answer_question(llm, db, question, config_path=config_path)
+
+
+async def answer_question_claude(
+    db: str,
+    question: str,
+    config_path: str,
+    mode: str,
+    model: str = DEFAULT_MODEL,
+    fallback: bool = False,
+) -> AgentResult:
+    """Run one question via the Claude Agent SDK against the MCP server; honour record/replay.
+
+    ``fallback`` (off for the eval baseline, on in production) degrades to the Gemini per-turn
+    path if the Claude SDK errors, so the live site answers instead of erroring.
+    """
+    system_prompt = ANALYST_PROMPT.format(database=db)
+    key = _cache_key(db, question, model, system_prompt)
+
+    if mode == "replay":
+        cached = _read_cache(key)
+        if cached is None:
+            raise CacheMiss(f"claude cache miss for {db}/{question[:30]}...; re-record")
+        return cached
+    cached = _read_cache(key)
+    if cached is not None:
+        return cached
+
+    try:
+        result = await _run_agent_sdk(db, question, config_path, model, system_prompt)
+    except Exception:
+        if not fallback:
+            raise
+        result = await _gemini_fallback(db, question, config_path, mode)
+
     _write_cache(key, result)
     return result

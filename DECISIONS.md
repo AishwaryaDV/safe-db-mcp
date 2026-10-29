@@ -15,6 +15,7 @@ these.
 | 2026-10-26 | Deployment | Self-hosted on the owner's server (Ubuntu + nginx), both frontend and backend | Owner self-hosts all fullstack projects; not free hosts (Vercel / Render / Hugging Face Spaces) |
 | 2026-10-28 | Eval model (Claude backend) | `claude-sonnet-5`, thinking disabled | Owner approved Sonnet over Opus; strong at text-to-SQL, cheaper/lighter on rate limits; model is recorded in each `run.json` |
 | 2026-10-28 | Eval on both backends | Record on Claude (Sonnet 5) and also on Gemini free tier | Gemini is the deployed fallback, so the eval confirms it performs comparably through the same server (needs `GEMINI_API_KEY` when we reach it) |
+| 2026-10-29 | Production LLM backend | Claude primary (owner logs a Claude session in on the server), Gemini as fallback/overflow | Owner can't rely on the Gemini free tier (20 calls/day, flaky); keeps the same model as dev; matches reddit-outreach (Claude primary, Gemini overflow). The Claude per-question path falls back to the Gemini per-turn path on error. |
 
 ## Open questions for the owner
 
