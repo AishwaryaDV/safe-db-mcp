@@ -122,3 +122,13 @@ actually went wrong and what we did about it" that doesn't show up in the commit
   model being *correct* looked like a leak).
   **Solution:** scope the leak check to content we *author* (system prompt + question), not the
   model's own tool calls or the results derived from them.
+
+- **Four hard `flight_2` questions had an empty gold result, so they could never match.** The
+  Spider-mirror's `flight_2` database stores airport codes with trailing spaces, so the gold
+  SQL's exact-match join (`AirportCode = SourceAirport`) returns nothing; the model noticed the
+  padding, used `TRIM(...)`, and got real rows — scored as a *miss* against an empty gold (it
+  was arguably more correct than the gold).
+  **Solution:** treat empty-gold questions as **unscorable** and exclude them from accuracy
+  (reported as `excluded_unscorable` in the metrics); re-scored for free via replay, no
+  re-record. The honest tune baseline is over the 26 scorable questions (holdout has none).
+  A future `build_slice` could also skip empty-gold at selection time.

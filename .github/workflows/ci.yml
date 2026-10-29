@@ -29,3 +29,6 @@ jobs:
 
       - name: Test (everything except live_llm)
         run: pytest -m "not live_llm"
+
+      - name: Eval regression gate (replay from committed cache; no model, no key)
+        run: python -m eval.run_eval --split tune --mode replay --gate
