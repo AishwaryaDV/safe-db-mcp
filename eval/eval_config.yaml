@@ -1,0 +1,60 @@
+databases:
+- name: chinook
+  path: data/chinook/Chinook_Sqlite.sqlite
+  description: Music store sample (artists, albums, tracks, customers, invoices)
+- name: battle_death
+  path: data/spider/database/battle_death/battle_death.sqlite
+  description: 'Spider benchmark database: battle_death'
+- name: car_1
+  path: data/spider/database/car_1/car_1.sqlite
+  description: 'Spider benchmark database: car_1'
+- name: concert_singer
+  path: data/spider/database/concert_singer/concert_singer.sqlite
+  description: 'Spider benchmark database: concert_singer'
+- name: cre_Doc_Template_Mgt
+  path: data/spider/database/cre_Doc_Template_Mgt/cre_Doc_Template_Mgt.sqlite
+  description: 'Spider benchmark database: cre_Doc_Template_Mgt'
+- name: dog_kennels
+  path: data/spider/database/dog_kennels/dog_kennels.sqlite
+  description: 'Spider benchmark database: dog_kennels'
+- name: employee_hire_evaluation
+  path: data/spider/database/employee_hire_evaluation/employee_hire_evaluation.sqlite
+  description: 'Spider benchmark database: employee_hire_evaluation'
+- name: flight_2
+  path: data/spider/database/flight_2/flight_2.sqlite
+  description: 'Spider benchmark database: flight_2'
+- name: network_1
+  path: data/spider/database/network_1/network_1.sqlite
+  description: 'Spider benchmark database: network_1'
+- name: orchestra
+  path: data/spider/database/orchestra/orchestra.sqlite
+  description: 'Spider benchmark database: orchestra'
+- name: pets_1
+  path: data/spider/database/pets_1/pets_1.sqlite
+  description: 'Spider benchmark database: pets_1'
+- name: poker_player
+  path: data/spider/database/poker_player/poker_player.sqlite
+  description: 'Spider benchmark database: poker_player'
+- name: singer
+  path: data/spider/database/singer/singer.sqlite
+  description: 'Spider benchmark database: singer'
+- name: student_transcripts_tracking
+  path: data/spider/database/student_transcripts_tracking/student_transcripts_tracking.sqlite
+  description: 'Spider benchmark database: student_transcripts_tracking'
+- name: tvshow
+  path: data/spider/database/tvshow/tvshow.sqlite
+  description: 'Spider benchmark database: tvshow'
+- name: world_1
+  path: data/spider/database/world_1/world_1.sqlite
+  description: 'Spider benchmark database: world_1'
+- name: wta_1
+  path: data/spider/database/wta_1/wta_1.sqlite
+  description: 'Spider benchmark database: wta_1'
+limits:
+  max_rows_default: 100
+  max_rows_cap: 1000
+  timeout_s: 3.0
+  max_sql_chars: 4000
+  max_cell_chars: 500
+  sample_rows_default: 3
+audit_db: data/audit.sqlite

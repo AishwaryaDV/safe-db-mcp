@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import ssl
 import sys
 import urllib.request
@@ -67,11 +68,30 @@ def download_chinook() -> Path:
     return dest
 
 
-def download_spider() -> None:
-    raise SystemExit(
-        "spider download is implemented in P5 (Hugging Face mirror xlangai/spider). "
-        "See DATA_SOURCES.md and DECISIONS.md."
-    )
+SPIDER_QUESTIONS_REPO = "xlangai/spider"
+SPIDER_QUESTIONS_FILE = "spider/validation-00000-of-00001.parquet"
+
+
+def download_spider() -> Path:
+    """Fetch the Spider dev questions (with gold SQL). Databases are fetched on demand by
+    eval/build_slice.py from premai-io/spider. Idempotent."""
+    from huggingface_hub import hf_hub_download  # lazy: only needed for the eval build
+
+    dest = DATA_DIR / "spider" / "dev.parquet"
+    if dest.exists():
+        print(f"spider: already present at {dest}")
+        return dest
+
+    print(f"spider: downloading dev questions from {SPIDER_QUESTIONS_REPO}")
+    cached = hf_hub_download(SPIDER_QUESTIONS_REPO, SPIDER_QUESTIONS_FILE, repo_type="dataset")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(cached, dest)
+
+    import pyarrow.parquet as pq
+
+    n = pq.read_metadata(dest).num_rows
+    print(f"spider: saved {dest} ({n} questions); databases are fetched on demand by build_slice")
+    return dest
 
 
 def main(argv: list[str] | None = None) -> int:
