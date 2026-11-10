@@ -94,3 +94,46 @@ def test_every_call_logged(tmp_path):
     assert len(rows) == 2
     assert rows[0] == ("claude_sdk", 0)
     assert rows[1] == ("claude_sdk", 1)
+
+
+@pytest.mark.unit
+def test_anthropic_api_backend_selection(tmp_path):
+    from safedb.llm_client import ClaudeBackend
+
+    settings = Settings(
+        llm_backend="anthropic_api", anthropic_api_key="sk-test", llm_mode="record"
+    )
+    client = LLMClient(
+        settings, db_path=tmp_path / "audit.sqlite", cache_dir=tmp_path / "llm_cache"
+    )
+    assert isinstance(client._make_backend("anthropic_api"), ClaudeBackend)
+    assert client._default_model_for("anthropic_api") == "claude-sonnet-5"
+    assert "anthropic_api" in client._FALLS_BACK_TO_GEMINI
+
+
+@pytest.mark.unit
+def test_anthropic_api_falls_back_to_gemini(tmp_path, monkeypatch):
+    settings = Settings(
+        llm_backend="anthropic_api", anthropic_api_key="sk-test", llm_mode="record"
+    )
+    client = LLMClient(
+        settings, db_path=tmp_path / "audit.sqlite", cache_dir=tmp_path / "llm_cache"
+    )
+
+    class Raising:
+        def generate(self, *args):
+            raise RuntimeError("anthropic down / bad key")
+
+    class FakeGemini:
+        default_model = "gemini-3.5-flash"
+
+        def generate(self, *args):
+            return ("fallback answer", [], Usage(input_tokens=1, output_tokens=1))
+
+    monkeypatch.setattr(
+        client, "_make_backend", lambda name: FakeGemini() if name == "gemini" else Raising()
+    )
+
+    result = client.generate(MESSAGES)
+    assert result.backend == "gemini"
+    assert result.text == "fallback answer"
