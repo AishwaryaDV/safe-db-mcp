@@ -54,8 +54,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    llm_backend: Literal["claude_sdk", "gemini"] = "claude_sdk"
+    llm_backend: Literal["claude_sdk", "anthropic_api", "gemini"] = "claude_sdk"
     llm_mode: Literal["live", "record", "replay"] = "replay"
+    anthropic_api_key: str | None = None  # bring-your-own Anthropic key (anthropic_api backend)
     gemini_api_key: str | None = None
     daily_llm_budget: int = 200
     hints: Literal["on", "off"] = "on"
