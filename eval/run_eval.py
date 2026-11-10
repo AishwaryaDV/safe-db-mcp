@@ -89,14 +89,15 @@ async def run(
     llm = LLMClient(settings, db_path=load_config(config_path).audit_db, run_id=run_id)
 
     if mode in ("live", "record"):
-        if backend == "gemini":
+        if backend == "claude_sdk":
+            print("recording on the Claude subscription via the Agent SDK (model: sonnet)")
+        else:
+            # Metered APIs (gemini, anthropic_api): check the daily budget before spending.
             max_requests = len(questions) * MAX_REQUESTS_PER_QUESTION
             remaining = settings.daily_llm_budget - llm.calls_today()
-            print(f"budget: up to {max_requests} Gemini requests needed; {remaining} left today")
+            print(f"budget: up to {max_requests} {backend} requests needed; {remaining} left today")
             if max_requests > remaining and not force:
                 raise SystemExit("would exceed the daily LLM budget; pass --force to override")
-        else:
-            print("recording on the Claude subscription via the Agent SDK (model: sonnet)")
 
     records: list[dict[str, Any]] = []
     for q in questions:
