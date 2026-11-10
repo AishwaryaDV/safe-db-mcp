@@ -171,26 +171,32 @@ def create_app(
     def examples() -> dict[str, Any]:
         return {"examples": EXAMPLES}
 
-    def _count(where: str, params: list[Any]) -> int:
-        today = datetime.now(UTC).date().isoformat()
-        conn = sqlite3.connect(config.audit_db)
-        try:
-            (n,) = conn.execute(
-                f"SELECT COUNT(*) FROM api_requests WHERE substr(ts,1,10)=? {where}",
-                [today, *params],
-            ).fetchone()
-        finally:
-            conn.close()
-        return n
+    def _try_record_request(ip_hash: str) -> bool:
+        """Atomically check both caps and record one request. Returns False if capped.
 
-    def _record_request(ip_hash: str) -> None:
-        conn = sqlite3.connect(config.audit_db)
+        The count and the insert happen inside a single ``BEGIN IMMEDIATE`` write transaction,
+        so concurrent requests are serialized and cannot both read "under cap" and overshoot.
+        """
+        today = datetime.now(UTC).date().isoformat()
+        conn = sqlite3.connect(config.audit_db, isolation_level=None)
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            (visitor,) = conn.execute(
+                "SELECT COUNT(*) FROM api_requests WHERE substr(ts,1,10)=? AND ip_hash=?",
+                [today, ip_hash],
+            ).fetchone()
+            (total,) = conn.execute(
+                "SELECT COUNT(*) FROM api_requests WHERE substr(ts,1,10)=?", [today]
+            ).fetchone()
+            if visitor >= PER_VISITOR_DAILY or total >= GLOBAL_DAILY:
+                conn.execute("ROLLBACK")
+                return False
             conn.execute(
                 "INSERT INTO api_requests (ts, ip_hash) VALUES (?, ?)",
                 [datetime.now(UTC).isoformat(), ip_hash],
             )
-            conn.commit()
+            conn.execute("COMMIT")
+            return True
         finally:
             conn.close()
 
@@ -217,10 +223,7 @@ def create_app(
             )
 
         ip_hash = _ip_hash(request, trusted_proxies)
-        if (
-            _count("AND ip_hash=?", [ip_hash]) >= PER_VISITOR_DAILY
-            or _count("", []) >= GLOBAL_DAILY
-        ):
+        if not _try_record_request(ip_hash):
             return JSONResponse(
                 {
                     "error": "daily limit reached",
@@ -229,7 +232,6 @@ def create_app(
                 },
                 status_code=429,
             )
-        _record_request(ip_hash)
 
         result = await _run_agent(database, question, config_path, settings)
 

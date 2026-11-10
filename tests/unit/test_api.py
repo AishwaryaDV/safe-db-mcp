@@ -148,3 +148,18 @@ def test_ask_rejects_invalid_json(client):
     tc, _ = client
     r = tc.post("/api/ask", content=b"not json", headers={"content-type": "application/json"})
     assert r.status_code == 400
+
+
+def test_global_cap_enforced_atomically(client, monkeypatch):
+    tc, _ = client
+
+    async def fake_agent(database, question, config_path, settings):
+        return AgentResult(answer="ok", final_sql="SELECT 1", final_rows=[[1]], steps=[])
+
+    monkeypatch.setattr(api, "_run_agent", fake_agent)
+    monkeypatch.setattr(api, "GLOBAL_DAILY", 2)  # tiny global budget
+
+    assert tc.post("/api/ask", json={"question": "q1"}).status_code == 200
+    assert tc.post("/api/ask", json={"question": "q2"}).status_code == 200
+    capped = tc.post("/api/ask", json={"question": "q3"})  # 3rd exceeds the global cap
+    assert capped.status_code == 429
