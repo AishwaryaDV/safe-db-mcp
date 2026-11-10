@@ -185,3 +185,29 @@ def test_global_cap_enforced_atomically(client, monkeypatch):
     assert tc.post("/api/ask", json={"question": "q2"}).status_code == 200
     capped = tc.post("/api/ask", json={"question": "q3"})  # 3rd exceeds the global cap
     assert capped.status_code == 429
+
+
+def test_cors_denied_by_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("ALLOWED_ORIGINS", "")  # empty -> no CORS middleware at all
+    audit_db = tmp_path / "audit.sqlite"
+    audit.init_db(audit_db)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        yaml.safe_dump({"databases": [{"name": "chinook", "path": "x"}], "audit_db": str(audit_db)})
+    )
+    tc = TestClient(api.create_app(str(cfg), results_dir=tmp_path / "r", slice_path=tmp_path / "s"))
+    r = tc.get("/api/health", headers={"origin": "http://evil.example"})
+    assert "access-control-allow-origin" not in {k.lower() for k in r.headers}
+
+
+def test_cors_allows_configured_origin(tmp_path, monkeypatch):
+    monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:3000")
+    audit_db = tmp_path / "audit.sqlite"
+    audit.init_db(audit_db)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        yaml.safe_dump({"databases": [{"name": "chinook", "path": "x"}], "audit_db": str(audit_db)})
+    )
+    tc = TestClient(api.create_app(str(cfg), results_dir=tmp_path / "r", slice_path=tmp_path / "s"))
+    r = tc.get("/api/health", headers={"origin": "http://localhost:3000"})
+    assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"

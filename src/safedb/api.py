@@ -136,13 +136,17 @@ def create_app(
         conn.close()
 
     app = FastAPI(title="safe-db-mcp")
-    origins = [o for o in settings.allowed_origins.split(",") if o]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins or ["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Default to DENY cross-origin: with no ALLOWED_ORIGINS we add no CORS middleware, so a
+    # browser on another origin can't drive /api/ask against someone's key. Opt in explicitly
+    # (e.g. http://localhost:3000 for local dev, your domain in prod, or * if you really mean it).
+    origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:

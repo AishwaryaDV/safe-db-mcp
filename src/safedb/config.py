@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     daily_llm_budget: int = 200
     hints: Literal["on", "off"] = "on"
-    allowed_origins: str = ""  # comma-separated CORS origins (empty = allow all; see H4)
+    allowed_origins: str = ""  # comma-separated CORS origins (empty = deny cross-origin)
     trusted_proxies: str = "127.0.0.1,::1"  # peers whose X-Forwarded-For we trust (nginx host)
 
 
