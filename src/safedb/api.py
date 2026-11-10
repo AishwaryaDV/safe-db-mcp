@@ -26,6 +26,8 @@ SLICE_PATH = REPO_ROOT / "eval" / "questions" / "slice.jsonl"
 
 PER_VISITOR_DAILY = 10
 GLOBAL_DAILY = 150  # below the LLM daily budget
+MAX_BODY_BYTES = 16 * 1024  # reject oversized request bodies before reading them
+MAX_QUESTION_CHARS = 2000  # a user question is short; cap it before it reaches the model
 
 EXAMPLES = [
     {"database": "chinook", "question": "How many tracks are in the database?"},
@@ -194,11 +196,25 @@ def create_app(
 
     @app.post("/api/ask")
     async def ask(request: Request) -> Any:
-        body = await request.json()
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+            return JSONResponse({"error": "request too large"}, status_code=413)
+        raw = await request.body()
+        if len(raw) > MAX_BODY_BYTES:
+            return JSONResponse({"error": "request too large"}, status_code=413)
+        try:
+            body = json.loads(raw or b"{}")
+        except (ValueError, TypeError):
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
         database = body.get("database", "chinook")
         question = (body.get("question") or "").strip()
         if not question:
             return JSONResponse({"error": "question is required"}, status_code=400)
+        if len(question) > MAX_QUESTION_CHARS:
+            return JSONResponse(
+                {"error": f"question too long (max {MAX_QUESTION_CHARS} characters)"},
+                status_code=400,
+            )
 
         ip_hash = _ip_hash(request, trusted_proxies)
         if (

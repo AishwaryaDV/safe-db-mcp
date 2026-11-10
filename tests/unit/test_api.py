@@ -135,3 +135,16 @@ def test_client_ip_trusts_forwarded_only_from_trusted_peer():
     )
     # untrusted peer: a client-supplied XFF is ignored, falls back to the peer
     assert _client_ip(_req("8.8.8.8", "1.1.1.1"), trusted) == "8.8.8.8"
+
+
+def test_ask_rejects_oversized_question(client):
+    tc, _ = client
+    # over the 2000-char cap -> 400 before the agent is ever called (no model needed)
+    r = tc.post("/api/ask", json={"question": "x" * 2001})
+    assert r.status_code == 400 and "too long" in r.json()["error"]
+
+
+def test_ask_rejects_invalid_json(client):
+    tc, _ = client
+    r = tc.post("/api/ask", content=b"not json", headers={"content-type": "application/json"})
+    assert r.status_code == 400
