@@ -211,3 +211,16 @@ def test_cors_allows_configured_origin(tmp_path, monkeypatch):
     tc = TestClient(api.create_app(str(cfg), results_dir=tmp_path / "r", slice_path=tmp_path / "s"))
     r = tc.get("/api/health", headers={"origin": "http://localhost:3000"})
     assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
+def test_audit_db_uses_wal(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "audit.sqlite"
+    audit.init_db(db)
+    conn = sqlite3.connect(db)
+    try:
+        (mode,) = conn.execute("PRAGMA journal_mode").fetchone()
+    finally:
+        conn.close()
+    assert mode.lower() == "wal"

@@ -19,6 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from safedb import audit
 from safedb.config import Settings, load_config
 
 logger = logging.getLogger("safedb.api")
@@ -94,7 +95,7 @@ def _audit_rows(audit_db: str, status, database, limit, before_id) -> list[dict[
         clauses.append("id < ?")
         params.append(before_id)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    conn = sqlite3.connect(audit_db)
+    conn = audit.connect(audit_db)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
@@ -128,8 +129,9 @@ def create_app(
         }
 
     # api_requests table lives alongside the audit log
-    conn = sqlite3.connect(config.audit_db)
+    conn = audit.connect(config.audit_db)
     try:
+        conn.execute("PRAGMA journal_mode = WAL")  # in case the API is first to create the file
         conn.executescript(_API_REQUESTS_SCHEMA)
         conn.commit()
     finally:
@@ -153,7 +155,7 @@ def create_app(
         return {"status": "ok", "backend": settings.llm_backend, "llm_ready": llm_ready}
 
     @app.get("/api/audit")
-    def audit(
+    def get_audit(
         status: str | None = None,
         database: str | None = None,
         limit: int = 50,
@@ -207,7 +209,7 @@ def create_app(
         so concurrent requests are serialized and cannot both read "under cap" and overshoot.
         """
         today = datetime.now(UTC).date().isoformat()
-        conn = sqlite3.connect(config.audit_db, isolation_level=None)
+        conn = audit.connect(config.audit_db, autocommit=True)
         try:
             conn.execute("BEGIN IMMEDIATE")
             (visitor,) = conn.execute(

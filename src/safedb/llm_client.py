@@ -349,10 +349,16 @@ class LLMClient:
         self._cache_path(key).write_text(result.model_dump_json(indent=2))
 
     # --- quota + call log (llm_calls lives in the audit db) ---
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA busy_timeout = 5000")  # wait for the lock instead of erroring
+        return conn
+
     def _init_db(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
+            conn.execute("PRAGMA journal_mode = WAL")  # persists: readers don't block writers
             conn.executescript(_LLM_CALLS_SCHEMA)
             conn.commit()
         finally:
@@ -364,7 +370,7 @@ class LLMClient:
 
     def _calls_today(self) -> int:
         today = datetime.now(UTC).date().isoformat()
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
             (count,) = conn.execute(
                 "SELECT COUNT(*) FROM llm_calls WHERE cached = 0 AND substr(ts, 1, 10) = ?",
@@ -375,7 +381,7 @@ class LLMClient:
         return count
 
     def _log_call(self, result: LLMResult, error: str | None) -> None:
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
             conn.execute(
                 """
