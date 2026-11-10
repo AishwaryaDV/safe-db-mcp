@@ -20,7 +20,7 @@ on top of the usual read-only-database safety.
 | C1 | CRITICAL | Per-visitor rate cap non-functional behind nginx | ☑ fixed |
 | H1 | HIGH | No request-body / question size limit on `/api/ask` | ☑ fixed |
 | H2 | HIGH | Rate-limit check-then-insert is racy (TOCTOU) | ☑ fixed |
-| H3 | HIGH | No startup validation that a key exists for the backend | ☐ |
+| H3 | HIGH | No startup validation that a key exists for the backend | ☑ fixed |
 | H4 | HIGH | CORS falls back to `*` | ☐ |
 | M1 | MED | SQLite write contention under async uvicorn | ☐ |
 | M2 | MED | SSE isn't actually streamed (whole agent runs first) | ☐ |

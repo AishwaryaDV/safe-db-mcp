@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from safedb.config import Settings, load_config
+
+logger = logging.getLogger("safedb.api")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 RESULTS_DIR = REPO_ROOT / "eval" / "results"
@@ -42,6 +45,21 @@ CREATE TABLE IF NOT EXISTS api_requests (
 );
 CREATE INDEX IF NOT EXISTS api_requests_ts ON api_requests (ts);
 """
+
+
+def _llm_ready(settings: Settings) -> bool:
+    """Whether the selected backend can actually serve a live ask.
+
+    ``replay`` needs no model; ``claude_sdk`` uses a local login we can't check here; the metered
+    key backends need their key present.
+    """
+    if settings.llm_mode == "replay":
+        return True
+    if settings.llm_backend == "anthropic_api":
+        return bool(settings.anthropic_api_key)
+    if settings.llm_backend == "gemini":
+        return bool(settings.gemini_api_key)
+    return True
 
 
 def _client_ip(request: Request, trusted_proxies: set[str]) -> str:
@@ -95,6 +113,13 @@ def create_app(
     config = load_config(config_path)
     settings = Settings()
     trusted_proxies = {p.strip() for p in settings.trusted_proxies.split(",") if p.strip()}
+    llm_ready = _llm_ready(settings)
+    if not llm_ready:
+        logger.warning(
+            "LLM backend %r is selected but no API key is set; live /api/ask will fail or fall "
+            "back to Gemini. Read-only pages (eval, audit) still work. Set the key in .env.",
+            settings.llm_backend,
+        )
     gold = {}
     if slice_path.exists():
         gold = {
@@ -120,8 +145,8 @@ def create_app(
     )
 
     @app.get("/api/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> dict[str, Any]:
+        return {"status": "ok", "backend": settings.llm_backend, "llm_ready": llm_ready}
 
     @app.get("/api/audit")
     def audit(

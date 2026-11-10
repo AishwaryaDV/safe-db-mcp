@@ -60,7 +60,29 @@ def client(tmp_path, monkeypatch):
 
 def test_health(client):
     tc, _ = client
-    assert tc.get("/api/health").json() == {"status": "ok"}
+    h = tc.get("/api/health").json()
+    assert h["status"] == "ok" and "llm_ready" in h
+
+
+def test_health_reports_missing_key(tmp_path, monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setenv("LLM_BACKEND", "anthropic_api")
+    monkeypatch.setenv("LLM_MODE", "live")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+
+    audit_db = tmp_path / "audit.sqlite"
+    audit.init_db(audit_db)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        yaml.safe_dump({"databases": [{"name": "chinook", "path": "x"}], "audit_db": str(audit_db)})
+    )
+    with caplog.at_level(logging.WARNING):
+        app = api.create_app(str(cfg), results_dir=tmp_path / "r", slice_path=tmp_path / "s.jsonl")
+    tc = TestClient(app)
+    h = tc.get("/api/health").json()
+    assert h["status"] == "ok" and h["llm_ready"] is False
+    assert any("no API key" in r.message for r in caplog.records)
 
 
 def test_audit(client):
