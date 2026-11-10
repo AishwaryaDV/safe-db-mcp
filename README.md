@@ -89,9 +89,16 @@ A Next.js app (in [`web/`](web/)) over the FastAPI backend ([`src/safedb/api.py`
 - `eval/` — slice builder, scorer, orchestrator, and the Claude Agent SDK runner.
 - `web/` — the dashboard.
 
-**LLM backends.** Claude is primary via the Claude Agent SDK (uses the local Claude Code login,
-no API key); Gemini is the fallback/overflow path. In production the live site falls back to
-Gemini if Claude is unavailable or over budget — see [`DECISIONS.md`](DECISIONS.md).
+**LLM backends (bring your own key).** The MCP server needs no model; only the agent/eval/demo
+layer calls one. Pick a backend in `.env` (see [`.env.example`](.env.example)):
+
+- `anthropic_api` — your own Anthropic API key (`ANTHROPIC_API_KEY`). Recommended for anything
+  hosted. Falls back to Gemini if the Anthropic call fails or is over budget.
+- `gemini` — your own Gemini API key (`GEMINI_API_KEY`).
+- `claude_sdk` — a local `claude login` session, no key. Local dev only.
+
+The key is yours and lives only in the gitignored `.env`; nothing is committed. See
+[`DECISIONS.md`](DECISIONS.md).
 
 ## Quick start
 

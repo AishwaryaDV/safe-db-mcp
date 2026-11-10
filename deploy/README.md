@@ -29,28 +29,25 @@ cd web && echo "NEXT_PUBLIC_API_URL=https://safe-db-mcp.example.com" > .env.loca
 npm ci && npm run build && cd ..
 ```
 
-### Log Claude in on the server (owner task)
+### Pick a model backend (bring your own key)
 
-The live `/api/ask` path uses the Claude Agent SDK, which authenticates through the local
-Claude Code session. Run once as the `safedb` user so the agent can call the model:
-
-```bash
-sudo -u safedb claude login      # or: sudo -u safedb claude  (then /login)
-```
-
-Until this is done the backend still serves the cached dashboard pages; only live asks need it.
+The live `/api/ask` path needs a model. For a hosted instance use `anthropic_api` with your own
+Anthropic key (below) — do not ship anyone else's key. Alternatively `gemini` with a Gemini key.
+`claude_sdk` (a local `claude login`, no key) is for local dev only, not a server.
 
 ## Server `.env`
 
 ```ini
-LLM_BACKEND=claude_sdk              # Claude primary
+LLM_BACKEND=anthropic_api           # your own key; falls back to Gemini on error/budget
 LLM_MODE=live                       # live model for real questions
-GEMINI_API_KEY=...                  # fallback/overflow only (see DECISIONS.md)
+ANTHROPIC_API_KEY=...               # the host's key — lives only here, never committed
+GEMINI_API_KEY=...                  # optional fallback
 ALLOWED_ORIGINS=https://safe-db-mcp.example.com
 ```
 
-Prod = **Claude primary, Gemini fallback**: if Claude is unavailable or over budget, the
-backend quietly falls back to Gemini. Daily caps (10/visitor, 150/global) protect the budget.
+If `ANTHROPIC_API_KEY` is unavailable or over budget, the backend quietly falls back to Gemini.
+Daily caps (10/visitor, 150/global) protect the budget. Leave the key blank and the read-only
+dashboard pages (eval, audit) still serve; only live asks need it.
 
 ## Services + proxy
 
