@@ -24,7 +24,7 @@ on top of the usual read-only-database safety.
 | H4 | HIGH | CORS falls back to `*` | ☑ fixed |
 | M1 | MED | SQLite write contention under async uvicorn | ☑ fixed (WAL + busy_timeout) |
 | M2 | MED | SSE isn't actually streamed (whole agent runs first) | ☑ fixed |
-| M3 | MED | `bypassPermissions` lacks a guard test | ☐ |
+| M3 | MED | `bypassPermissions` lacks a guard test | ☑ fixed |
 | M4 | MED | `api_requests` / audit tables grow unbounded | ☐ |
 | M5 | MED | Raw exception text can reach the client | ☑ fixed (via M2) |
 | L1 | LOW | TLS/HSTS not baked into nginx template | ☐ |

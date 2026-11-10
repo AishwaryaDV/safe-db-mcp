@@ -69,3 +69,21 @@ def test_recovery_flag():
     assert result.first_try_valid is False
     assert result.final_sql == "SELECT Name FROM Artist"
     assert result.recovered is True
+
+
+@pytest.mark.unit
+def test_allowed_tools_are_only_safe_mcp_tools():
+    """Guard: the Agent SDK runs with bypassPermissions, so the allow-list is the only wall.
+    Pin it to exactly the four read-only MCP tools — no built-in file/bash tools."""
+    from eval.claude_runner import ALLOWED_TOOLS, TOOL_PREFIX
+
+    assert set(ALLOWED_TOOLS) == {
+        f"{TOOL_PREFIX}list_databases",
+        f"{TOOL_PREFIX}describe_schema",
+        f"{TOOL_PREFIX}run_query",
+        f"{TOOL_PREFIX}explain_query",
+    }
+    # every allowed tool is namespaced to our MCP server; nothing built-in slips in
+    assert all(t.startswith(TOOL_PREFIX) for t in ALLOWED_TOOLS)
+    for builtin in ("Bash", "Read", "Write", "Edit", "WebFetch"):
+        assert builtin not in ALLOWED_TOOLS
