@@ -82,16 +82,21 @@ class Backend(Protocol):
 
 
 class ClaudeBackend:
-    """Backend over the owner's local Claude Code login via the anthropic SDK."""
+    """Anthropic backend via the anthropic SDK.
 
-    name = "claude_sdk"
+    With ``api_key`` it uses that key (the ``anthropic_api`` bring-your-own-key backend).
+    Without one, a zero-arg client resolves the owner's local Claude Code / ``claude login``
+    session (the ``claude_sdk`` backend, for local dev only).
+    """
+
+    name = "anthropic"
     default_model = "claude-sonnet-5"
     max_tokens = 4096
 
-    def __init__(self) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         from anthropic import Anthropic  # lazy: only needed for live/record
 
-        self._client = Anthropic()  # zero-arg: resolves the local login / profile
+        self._client = Anthropic(api_key=api_key) if api_key else Anthropic()
 
     def generate(self, model, messages, tools, response_schema, temperature):
         # A role=="system" message is hoisted to Anthropic's top-level system parameter, and
@@ -308,7 +313,9 @@ class LLMClient:
         if self._backend_override is not None:
             return self._backend_override
         if name == "claude_sdk":
-            return ClaudeBackend()
+            return ClaudeBackend()  # local login, no key
+        if name == "anthropic_api":
+            return ClaudeBackend(api_key=self.settings.anthropic_api_key)
         if name == "gemini":
             return GeminiBackend(api_key=self.settings.gemini_api_key)
         raise ValueError(f"unknown backend {name!r}")
@@ -441,6 +448,8 @@ class LLMClient:
     def _default_model_for(self, backend_name: str) -> str:
         return "gemini-3.5-flash" if backend_name == "gemini" else "claude-sonnet-5"
 
+    _FALLS_BACK_TO_GEMINI = {"claude_sdk", "anthropic_api"}
+
     def _call_with_fallback(
         self, backend_name, model, messages, tools, response_schema, temperature
     ) -> LLMResult:
@@ -451,8 +460,8 @@ class LLMClient:
                 model, messages, tools, response_schema, temperature
             )
         except Exception as exc:
-            # Fallback: claude_sdk -> gemini, once.
-            if backend_name == "claude_sdk" and self._backend_override is None:
+            # Fallback: a Claude backend (login or keyed) -> gemini, once.
+            if backend_name in self._FALLS_BACK_TO_GEMINI and self._backend_override is None:
                 fb = self._make_backend("gemini")
                 fb_started = time.monotonic()
                 text, tool_calls, usage = fb.generate(
