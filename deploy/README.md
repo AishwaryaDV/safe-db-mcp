@@ -43,7 +43,12 @@ LLM_MODE=live                       # live model for real questions
 ANTHROPIC_API_KEY=...               # the host's key — lives only here, never committed
 GEMINI_API_KEY=...                  # optional fallback
 ALLOWED_ORIGINS=https://safe-db-mcp.example.com
+TRUSTED_PROXIES=127.0.0.1,::1       # the nginx host; its X-Forwarded-For is trusted for rate caps
 ```
+
+The rate cap keys off the real client IP taken from `X-Forwarded-For`, trusted only when the
+request comes from `TRUSTED_PROXIES` (the local nginx). The reference `nginx.conf` already sets
+`X-Forwarded-For $proxy_add_x_forwarded_for`, which appends the real client as the last entry.
 
 If `ANTHROPIC_API_KEY` is unavailable or over budget, the backend quietly falls back to Gemini.
 Daily caps (10/visitor, 150/global) protect the budget. Leave the key blank and the read-only

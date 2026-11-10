@@ -17,7 +17,7 @@ on top of the usual read-only-database safety.
 
 | ID | Sev | Title | Status |
 |----|-----|-------|--------|
-| C1 | CRITICAL | Per-visitor rate cap non-functional behind nginx | ☐ |
+| C1 | CRITICAL | Per-visitor rate cap non-functional behind nginx | ☑ fixed |
 | H1 | HIGH | No request-body / question size limit on `/api/ask` | ☐ |
 | H2 | HIGH | Rate-limit check-then-insert is racy (TOCTOU) | ☐ |
 | H3 | HIGH | No startup validation that a key exists for the backend | ☐ |

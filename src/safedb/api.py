@@ -42,9 +42,24 @@ CREATE INDEX IF NOT EXISTS api_requests_ts ON api_requests (ts);
 """
 
 
-def _ip_hash(request: Request) -> str:
-    ip = request.client.host if request.client else "unknown"
-    return hashlib.sha256(ip.encode()).hexdigest()[:16]
+def _client_ip(request: Request, trusted_proxies: set[str]) -> str:
+    """The real client IP for rate-limiting.
+
+    Behind nginx the direct peer is always the loopback proxy, so we read the client from
+    ``X-Forwarded-For`` — but only when the peer is a trusted proxy. nginx appends the real
+    client (``$proxy_add_x_forwarded_for``) as the *last* entry, which the client cannot spoof,
+    so we take the last one. An untrusted peer's forwarded header is ignored.
+    """
+    peer = request.client.host if request.client else "unknown"
+    if peer in trusted_proxies:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[-1].strip() or peer
+    return peer
+
+
+def _ip_hash(request: Request, trusted_proxies: set[str]) -> str:
+    return hashlib.sha256(_client_ip(request, trusted_proxies).encode()).hexdigest()[:16]
 
 
 def _audit_rows(audit_db: str, status, database, limit, before_id) -> list[dict[str, Any]]:
@@ -77,6 +92,7 @@ def create_app(
 ) -> FastAPI:
     config = load_config(config_path)
     settings = Settings()
+    trusted_proxies = {p.strip() for p in settings.trusted_proxies.split(",") if p.strip()}
     gold = {}
     if slice_path.exists():
         gold = {
@@ -184,7 +200,7 @@ def create_app(
         if not question:
             return JSONResponse({"error": "question is required"}, status_code=400)
 
-        ip_hash = _ip_hash(request)
+        ip_hash = _ip_hash(request, trusted_proxies)
         if (
             _count("AND ip_hash=?", [ip_hash]) >= PER_VISITOR_DAILY
             or _count("", []) >= GLOBAL_DAILY

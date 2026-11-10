@@ -113,3 +113,25 @@ def test_ask_streams_and_caps(client):
     capped = tc.post("/api/ask", json={"question": "q"})
     assert capped.status_code == 429
     assert "examples" in capped.json()
+
+
+def _req(host, xff=None):
+    headers = {"x-forwarded-for": xff} if xff else {}
+    return type(
+        "R", (), {"client": type("C", (), {"host": host})(), "headers": headers}
+    )()
+
+
+def test_client_ip_trusts_forwarded_only_from_trusted_peer():
+    from safedb.api import _client_ip, _ip_hash
+
+    trusted = {"127.0.0.1", "::1"}
+    # trusted peer: real client comes from the LAST XFF entry (what nginx appends)
+    assert _client_ip(_req("127.0.0.1", "1.1.1.1"), trusted) == "1.1.1.1"
+    assert _client_ip(_req("127.0.0.1", "9.9.9.9, 2.2.2.2"), trusted) == "2.2.2.2"
+    # distinct clients -> distinct buckets (the cap now actually separates visitors)
+    assert _ip_hash(_req("127.0.0.1", "1.1.1.1"), trusted) != _ip_hash(
+        _req("127.0.0.1", "2.2.2.2"), trusted
+    )
+    # untrusted peer: a client-supplied XFF is ignored, falls back to the peer
+    assert _client_ip(_req("8.8.8.8", "1.1.1.1"), trusted) == "8.8.8.8"
