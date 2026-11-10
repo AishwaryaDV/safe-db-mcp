@@ -108,7 +108,7 @@ def test_eval_runs_and_questions(client):
 def test_ask_streams_and_caps(client):
     tc, monkeypatch = client
 
-    async def fake_agent(database, question, config_path, settings):
+    async def fake_agent(database, question, config_path, settings, on_step=None):
         return AgentResult(
             answer="42 tracks.",
             final_sql="SELECT count(*) FROM Track",
@@ -175,7 +175,7 @@ def test_ask_rejects_invalid_json(client):
 def test_global_cap_enforced_atomically(client, monkeypatch):
     tc, _ = client
 
-    async def fake_agent(database, question, config_path, settings):
+    async def fake_agent(database, question, config_path, settings, on_step=None):
         return AgentResult(answer="ok", final_sql="SELECT 1", final_rows=[[1]], steps=[])
 
     monkeypatch.setattr(api, "_run_agent", fake_agent)
@@ -224,3 +224,33 @@ def test_audit_db_uses_wal(tmp_path):
     finally:
         conn.close()
     assert mode.lower() == "wal"
+
+
+def test_ask_streams_start_and_live_steps(client, monkeypatch):
+    tc, _ = client
+
+    async def fake_agent(database, question, config_path, settings, on_step=None):
+        # emit a step live (as the real per-turn agent does) before finishing
+        if on_step is not None:
+            on_step(Step(tool="run_query", args={"sql": "SELECT 1"}, ok=True, error_type=None))
+        return AgentResult(answer="1", final_sql="SELECT 1", final_rows=[[1]], steps=[])
+
+    monkeypatch.setattr(api, "_run_agent", fake_agent)
+    r = tc.post("/api/ask", json={"question": "q"})
+    assert r.status_code == 200
+    text = r.text
+    # start flushes before anything else; the live step arrives before final
+    assert text.index("event: start") < text.index("event: tool_call") < text.index("event: final")
+
+
+def test_ask_reports_generic_error(client, monkeypatch):
+    tc, _ = client
+
+    async def boom(database, question, config_path, settings, on_step=None):
+        raise RuntimeError("secret internal detail: /opt/safe-db-mcp/.env")
+
+    monkeypatch.setattr(api, "_run_agent", boom)
+    r = tc.post("/api/ask", json={"question": "q"})
+    assert r.status_code == 200  # the stream opened; the error is an SSE event
+    assert "event: error" in r.text
+    assert "secret internal detail" not in r.text  # no raw exception text leaks

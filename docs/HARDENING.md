@@ -23,10 +23,10 @@ on top of the usual read-only-database safety.
 | H3 | HIGH | No startup validation that a key exists for the backend | ☑ fixed |
 | H4 | HIGH | CORS falls back to `*` | ☑ fixed |
 | M1 | MED | SQLite write contention under async uvicorn | ☑ fixed (WAL + busy_timeout) |
-| M2 | MED | SSE isn't actually streamed (whole agent runs first) | ☐ |
+| M2 | MED | SSE isn't actually streamed (whole agent runs first) | ☑ fixed |
 | M3 | MED | `bypassPermissions` lacks a guard test | ☐ |
 | M4 | MED | `api_requests` / audit tables grow unbounded | ☐ |
-| M5 | MED | Raw exception text can reach the client | ☐ |
+| M5 | MED | Raw exception text can reach the client | ☑ fixed (via M2) |
 | L1 | LOW | TLS/HSTS not baked into nginx template | ☐ |
 | L2 | LOW | No healthcheck wired into systemd; no `web/` CI | ☐ |
 | L3 | LOW | `{run_id}` path param defense-in-depth | ☐ |

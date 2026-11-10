@@ -64,11 +64,13 @@ async def answer_question(
     question: str,
     config_path: str = "config.yaml",
     on_request: Callable[[list[dict[str, Any]]], None] | None = None,
+    on_step: Callable[[Step], None] | None = None,
 ) -> AgentResult:
     """Run one benchmark question through the live MCP server and return what happened.
 
     ``on_request`` is called with the messages just before each model call (the eval uses it to
-    assert the gold answer never leaks into a request).
+    assert the gold answer never leaks into a request). ``on_step`` is called with each tool
+    Step as it completes (the API uses it to stream the trace live).
     """
     params = StdioServerParameters(
         command=sys.executable,
@@ -136,9 +138,10 @@ async def answer_question(
                     content = mcp_result.structured_content or {}
                     ok = content.get("ok")
                     error_type = content.get("error_type")
-                    result.steps.append(
-                        Step(tool=call.name, args=call.arguments, ok=ok, error_type=error_type)
-                    )
+                    step = Step(tool=call.name, args=call.arguments, ok=ok, error_type=error_type)
+                    result.steps.append(step)
+                    if on_step is not None:
+                        on_step(step)
 
                     if call.name == "run_query":
                         if not first_run_query_seen:

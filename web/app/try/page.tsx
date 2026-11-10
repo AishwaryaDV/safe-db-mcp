@@ -44,6 +44,7 @@ export default function TryPage() {
         else if (event === "tool_result") setTrace((t) => [...t, { kind: "tool_result", ...data }]);
         else if (event === "final") setFinal(data);
         else if (event === "limit") setLimit(data);
+        else if (event === "error") setError(data.message ?? "The assistant could not answer this.");
       }
     } catch (e) {
       setError(String(e));

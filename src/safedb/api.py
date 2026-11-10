@@ -7,6 +7,7 @@ behind per-visitor and global daily caps. Browser input never contains raw SQL.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -264,23 +265,64 @@ def create_app(
                 status_code=429,
             )
 
-        result = await _run_agent(database, question, config_path, settings)
+        # Stream the trace live: the agent pushes each Step onto the queue as it happens, while
+        # the generator drains it. An early "start" event flushes immediately so the connection
+        # stays warm (and nginx doesn't time out) before the first tool call.
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+        def on_step(step: Any) -> None:
+            queue.put_nowait(("step", step))
+
+        async def run_agent() -> None:
+            try:
+                result = await _run_agent(
+                    database, question, config_path, settings, on_step=on_step
+                )
+                queue.put_nowait(("final", result))
+            except Exception:
+                logger.exception("ask failed for database=%s", database)
+                queue.put_nowait(("error", None))
+            finally:
+                queue.put_nowait(("done", None))
+
+        def _step_events(step: Any):
+            yield _sse("tool_call", {"tool": step.tool, "args": step.args})
+            yield _sse(
+                "tool_result",
+                {"tool": step.tool, "ok": step.ok, "error_type": step.error_type},
+            )
 
         async def stream():
-            for step in result.steps:
-                yield _sse("tool_call", {"tool": step.tool, "args": step.args})
-                yield _sse(
-                    "tool_result", {"tool": step.tool, "ok": step.ok, "error_type": step.error_type}
-                )
-            yield _sse(
-                "final",
-                {
-                    "answer": result.answer,
-                    "final_sql": result.final_sql,
-                    "columns": result.final_columns,
-                    "rows": result.final_rows,
-                },
-            )
+            yield _sse("start", {"database": database})
+            task = asyncio.create_task(run_agent())
+            streamed = 0
+            while True:
+                kind, payload = await queue.get()
+                if kind == "done":
+                    break
+                if kind == "step":
+                    streamed += 1
+                    for ev in _step_events(payload):
+                        yield ev
+                elif kind == "final":
+                    if streamed == 0:  # non-streaming backend: replay its steps now
+                        for step in payload.steps:
+                            for ev in _step_events(step):
+                                yield ev
+                    yield _sse(
+                        "final",
+                        {
+                            "answer": payload.answer,
+                            "final_sql": payload.final_sql,
+                            "columns": payload.final_columns,
+                            "rows": payload.final_rows,
+                        },
+                    )
+                elif kind == "error":
+                    yield _sse(
+                        "error", {"message": "the assistant could not complete this request"}
+                    )
+            await task
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -292,8 +334,12 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-async def _run_agent(database: str, question: str, config_path: str, settings: Settings):
-    """Dispatch to the configured backend (Claude per-question + fallback, or Gemini per-turn)."""
+async def _run_agent(database, question, config_path, settings, on_step=None):
+    """Dispatch to the configured backend (Claude per-question + fallback, or per-turn loop).
+
+    ``on_step`` streams the trace live; only the per-turn loop supports it (the Claude SDK path
+    is local-dev only and its steps are replayed at the end by the caller).
+    """
     if settings.llm_backend == "claude_sdk":
         from eval.claude_runner import answer_question_claude
 
@@ -304,7 +350,9 @@ async def _run_agent(database: str, question: str, config_path: str, settings: S
     from safedb.llm_client import LLMClient
 
     llm = LLMClient(settings, db_path=load_config(config_path).audit_db)
-    return await answer_question(llm, database, question, config_path=config_path)
+    return await answer_question(
+        llm, database, question, config_path=config_path, on_step=on_step
+    )
 
 
 app = create_app()
