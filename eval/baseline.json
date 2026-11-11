@@ -1,0 +1,29 @@
+{
+  "split": "tune",
+  "model": "claude-sonnet-5-5",
+  "backend": "claude_sdk",
+  "recorded": "2026-10-29T09:41:17.743732+00:00",
+  "execution_accuracy": 0.4231,
+  "note": "4 flight_2 questions excluded as unscorable (empty gold from a trailing-whitespace data quirk).",
+  "metrics": {
+    "questions": 30,
+    "scored": 26,
+    "excluded_unscorable": 4,
+    "execution_accuracy": 0.4231,
+    "first_try_valid_rate": 0.9231,
+    "recovery_rate": 0.5,
+    "blocked_query_rate": 0.0,
+    "tool_calls_mean": 3.17,
+    "tool_calls_p95": 4.0,
+    "latency_ms_mean": 17437.4,
+    "latency_ms_p95": 28297.8,
+    "tokens_in_mean": 8.3,
+    "tokens_out_mean": 610.0,
+    "accuracy_by_difficulty": {
+      "easy": 0.625,
+      "extra": 0.2857,
+      "hard": 0.0,
+      "medium": 0.5
+    }
+  }
+}

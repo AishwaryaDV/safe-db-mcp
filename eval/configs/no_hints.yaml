@@ -1,0 +1,5 @@
+# Experiment 2: error hints off (HINTS=off) so run_query failures return message only.
+name: no_hints
+server_config: eval/eval_config.yaml
+env:
+  HINTS: "off"

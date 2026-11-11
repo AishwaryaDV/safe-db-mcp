@@ -31,3 +31,6 @@ web/out/
 
 # OS
 .DS_Store
+
+# Eval run outputs (generated; the baseline metrics live in eval/baseline.json)
+eval/results/

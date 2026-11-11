@@ -1,0 +1,368 @@
+"""FastAPI backend for the dashboard: audit log, eval results, and a capped ask endpoint.
+
+Read endpoints serve the three dashboard pages. ``POST /api/ask`` runs the agent (Claude
+per-question with Gemini fallback in prod, or Gemini per-turn) and streams the trace as SSE,
+behind per-visitor and global daily caps. Browser input never contains raw SQL.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import logging
+import re
+import sqlite3
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from safedb import audit
+from safedb.config import Settings, load_config
+
+logger = logging.getLogger("safedb.api")
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+RESULTS_DIR = REPO_ROOT / "eval" / "results"
+SLICE_PATH = REPO_ROOT / "eval" / "questions" / "slice.jsonl"
+
+PER_VISITOR_DAILY = 10
+GLOBAL_DAILY = 150  # below the LLM daily budget
+MAX_BODY_BYTES = 16 * 1024  # reject oversized request bodies before reading them
+MAX_QUESTION_CHARS = 2000  # a user question is short; cap it before it reaches the model
+API_REQUESTS_RETENTION_DAYS = 2  # rate-limit rows only matter for "today"; prune the rest
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")  # run_ids are safe slugs; reject anything path-like
+
+EXAMPLES = [
+    {"database": "chinook", "question": "How many tracks are in the database?"},
+    {"database": "chinook", "question": "Who are the top 5 artists by number of albums?"},
+    {"database": "chinook", "question": "Which 5 countries have the most customers?"},
+    {"database": "chinook", "question": "What is the total revenue by billing country (top 5)?"},
+]
+
+_API_REQUESTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS api_requests (
+  id INTEGER PRIMARY KEY, ts TEXT NOT NULL, ip_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS api_requests_ts ON api_requests (ts);
+"""
+
+
+def _llm_ready(settings: Settings) -> bool:
+    """Whether the selected backend can actually serve a live ask.
+
+    ``replay`` needs no model; ``claude_sdk`` uses a local login we can't check here; the metered
+    key backends need their key present.
+    """
+    if settings.llm_mode == "replay":
+        return True
+    if settings.llm_backend == "anthropic_api":
+        return bool(settings.anthropic_api_key)
+    if settings.llm_backend == "gemini":
+        return bool(settings.gemini_api_key)
+    return True
+
+
+def _client_ip(request: Request, trusted_proxies: set[str]) -> str:
+    """The real client IP for rate-limiting.
+
+    Behind nginx the direct peer is always the loopback proxy, so we read the client from
+    ``X-Forwarded-For`` — but only when the peer is a trusted proxy. nginx appends the real
+    client (``$proxy_add_x_forwarded_for``) as the *last* entry, which the client cannot spoof,
+    so we take the last one. An untrusted peer's forwarded header is ignored.
+    """
+    peer = request.client.host if request.client else "unknown"
+    if peer in trusted_proxies:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[-1].strip() or peer
+    return peer
+
+
+def _ip_hash(request: Request, trusted_proxies: set[str]) -> str:
+    return hashlib.sha256(_client_ip(request, trusted_proxies).encode()).hexdigest()[:16]
+
+
+def _audit_rows(audit_db: str, status, database, limit, before_id) -> list[dict[str, Any]]:
+    clauses, params = [], []
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if database:
+        clauses.append("database = ?")
+        params.append(database)
+    if before_id:
+        clauses.append("id < ?")
+        params.append(before_id)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    conn = audit.connect(audit_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM audit_log {where} ORDER BY id DESC LIMIT ?", [*params, limit]
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def create_app(
+    config_path: str = "config.yaml",
+    results_dir: Path = RESULTS_DIR,
+    slice_path: Path = SLICE_PATH,
+) -> FastAPI:
+    config = load_config(config_path)
+    settings = Settings()
+    trusted_proxies = {p.strip() for p in settings.trusted_proxies.split(",") if p.strip()}
+    llm_ready = _llm_ready(settings)
+    if not llm_ready:
+        logger.warning(
+            "LLM backend %r is selected but no API key is set; live /api/ask will fail or fall "
+            "back to Gemini. Read-only pages (eval, audit) still work. Set the key in .env.",
+            settings.llm_backend,
+        )
+    gold = {}
+    if slice_path.exists():
+        gold = {
+            r["id"]: r
+            for r in (json.loads(x) for x in slice_path.read_text().splitlines() if x.strip())
+        }
+
+    # api_requests table lives alongside the audit log
+    conn = audit.connect(config.audit_db)
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")  # in case the API is first to create the file
+        conn.executescript(_API_REQUESTS_SCHEMA)
+        conn.commit()
+    finally:
+        conn.close()
+
+    app = FastAPI(title="safe-db-mcp")
+    # Default to DENY cross-origin: with no ALLOWED_ORIGINS we add no CORS middleware, so a
+    # browser on another origin can't drive /api/ask against someone's key. Opt in explicitly
+    # (e.g. http://localhost:3000 for local dev, your domain in prod, or * if you really mean it).
+    origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    @app.get("/api/health")
+    def health() -> dict[str, Any]:
+        return {"status": "ok", "backend": settings.llm_backend, "llm_ready": llm_ready}
+
+    @app.get("/api/audit")
+    def get_audit(
+        status: str | None = None,
+        database: str | None = None,
+        limit: int = 50,
+        before_id: int | None = None,
+    ) -> dict[str, Any]:
+        return {"rows": _audit_rows(config.audit_db, status, database, min(limit, 200), before_id)}
+
+    @app.get("/api/eval/runs")
+    def eval_runs() -> dict[str, Any]:
+        runs = []
+        for path in sorted(results_dir.glob("*/run.json")):
+            meta = json.loads(path.read_text())
+            runs.append(
+                {k: meta.get(k) for k in ("run_id", "split", "experiment", "model", "date")}
+                | {"metrics": meta.get("metrics")}
+            )
+        runs.sort(key=lambda m: m.get("date") or "", reverse=True)
+        return {"runs": runs}
+
+    @app.get("/api/eval/runs/{run_id}")
+    def eval_run(run_id: str) -> Any:
+        if not _RUN_ID_RE.match(run_id):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        path = results_dir / run_id / "run.json"
+        if not path.exists():
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return json.loads(path.read_text())
+
+    @app.get("/api/eval/runs/{run_id}/questions")
+    def eval_questions(run_id: str, result: str | None = None) -> Any:
+        if not _RUN_ID_RE.match(run_id):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        path = results_dir / run_id / "questions.jsonl"
+        if not path.exists():
+            return {"questions": []}
+        records = [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+        if result == "match":
+            records = [r for r in records if r["match"]]
+        elif result == "mismatch":
+            records = [r for r in records if not r["match"]]
+        for r in records:  # attach gold (shown only here, never in a model request)
+            g = gold.get(r["id"], {})
+            r["gold_sql"] = g.get("gold_sql")
+            r["gold_result"] = g.get("gold_result")
+        return {"questions": records}
+
+    @app.get("/api/examples")
+    def examples() -> dict[str, Any]:
+        return {"examples": EXAMPLES}
+
+    def _try_record_request(ip_hash: str) -> bool:
+        """Atomically check both caps and record one request. Returns False if capped.
+
+        The count and the insert happen inside a single ``BEGIN IMMEDIATE`` write transaction,
+        so concurrent requests are serialized and cannot both read "under cap" and overshoot.
+        """
+        today = datetime.now(UTC).date().isoformat()
+        conn = audit.connect(config.audit_db, autocommit=True)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            (visitor,) = conn.execute(
+                "SELECT COUNT(*) FROM api_requests WHERE substr(ts,1,10)=? AND ip_hash=?",
+                [today, ip_hash],
+            ).fetchone()
+            (total,) = conn.execute(
+                "SELECT COUNT(*) FROM api_requests WHERE substr(ts,1,10)=?", [today]
+            ).fetchone()
+            if visitor >= PER_VISITOR_DAILY or total >= GLOBAL_DAILY:
+                conn.execute("ROLLBACK")
+                return False
+            conn.execute(
+                "INSERT INTO api_requests (ts, ip_hash) VALUES (?, ?)",
+                [datetime.now(UTC).isoformat(), ip_hash],
+            )
+            # keep the table bounded: drop rows older than the retention window
+            cutoff = (datetime.now(UTC) - timedelta(days=API_REQUESTS_RETENTION_DAYS)).isoformat()
+            conn.execute("DELETE FROM api_requests WHERE ts < ?", [cutoff])
+            conn.execute("COMMIT")
+            return True
+        finally:
+            conn.close()
+
+    @app.post("/api/ask")
+    async def ask(request: Request) -> Any:
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+            return JSONResponse({"error": "request too large"}, status_code=413)
+        raw = await request.body()
+        if len(raw) > MAX_BODY_BYTES:
+            return JSONResponse({"error": "request too large"}, status_code=413)
+        try:
+            body = json.loads(raw or b"{}")
+        except (ValueError, TypeError):
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        database = body.get("database", "chinook")
+        question = (body.get("question") or "").strip()
+        if not question:
+            return JSONResponse({"error": "question is required"}, status_code=400)
+        if len(question) > MAX_QUESTION_CHARS:
+            return JSONResponse(
+                {"error": f"question too long (max {MAX_QUESTION_CHARS} characters)"},
+                status_code=400,
+            )
+
+        ip_hash = _ip_hash(request, trusted_proxies)
+        if not _try_record_request(ip_hash):
+            return JSONResponse(
+                {
+                    "error": "daily limit reached",
+                    "examples": EXAMPLES,
+                    "message": "You've hit today's question limit. Try the cached examples.",
+                },
+                status_code=429,
+            )
+
+        # Stream the trace live: the agent pushes each Step onto the queue as it happens, while
+        # the generator drains it. An early "start" event flushes immediately so the connection
+        # stays warm (and nginx doesn't time out) before the first tool call.
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+        def on_step(step: Any) -> None:
+            queue.put_nowait(("step", step))
+
+        async def run_agent() -> None:
+            try:
+                result = await _run_agent(
+                    database, question, config_path, settings, on_step=on_step
+                )
+                queue.put_nowait(("final", result))
+            except Exception:
+                logger.exception("ask failed for database=%s", database)
+                queue.put_nowait(("error", None))
+            finally:
+                queue.put_nowait(("done", None))
+
+        def _step_events(step: Any):
+            yield _sse("tool_call", {"tool": step.tool, "args": step.args})
+            yield _sse(
+                "tool_result",
+                {"tool": step.tool, "ok": step.ok, "error_type": step.error_type},
+            )
+
+        async def stream():
+            yield _sse("start", {"database": database})
+            task = asyncio.create_task(run_agent())
+            streamed = 0
+            while True:
+                kind, payload = await queue.get()
+                if kind == "done":
+                    break
+                if kind == "step":
+                    streamed += 1
+                    for ev in _step_events(payload):
+                        yield ev
+                elif kind == "final":
+                    if streamed == 0:  # non-streaming backend: replay its steps now
+                        for step in payload.steps:
+                            for ev in _step_events(step):
+                                yield ev
+                    yield _sse(
+                        "final",
+                        {
+                            "answer": payload.answer,
+                            "final_sql": payload.final_sql,
+                            "columns": payload.final_columns,
+                            "rows": payload.final_rows,
+                        },
+                    )
+                elif kind == "error":
+                    yield _sse(
+                        "error", {"message": "the assistant could not complete this request"}
+                    )
+            await task
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    app.state.config = config
+    return app
+
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+async def _run_agent(database, question, config_path, settings, on_step=None):
+    """Dispatch to the configured backend (Claude per-question + fallback, or per-turn loop).
+
+    ``on_step`` streams the trace live; only the per-turn loop supports it (the Claude SDK path
+    is local-dev only and its steps are replayed at the end by the caller).
+    """
+    if settings.llm_backend == "claude_sdk":
+        from eval.claude_runner import answer_question_claude
+
+        return await answer_question_claude(
+            database, question, config_path, settings.llm_mode, fallback=True
+        )
+    from safedb.agent import answer_question
+    from safedb.llm_client import LLMClient
+
+    llm = LLMClient(settings, db_path=load_config(config_path).audit_db)
+    return await answer_question(
+        llm, database, question, config_path=config_path, on_step=on_step
+    )
+
+
+app = create_app()

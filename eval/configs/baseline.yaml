@@ -1,0 +1,4 @@
+# Baseline experiment: 3 sample rows in describe_schema, hints on.
+name: baseline
+server_config: eval/eval_config.yaml
+env: {}

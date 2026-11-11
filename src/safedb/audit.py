@@ -34,12 +34,24 @@ CREATE INDEX IF NOT EXISTS audit_status ON audit_log (status);
 """
 
 
+BUSY_TIMEOUT_MS = 5000
+
+
+def connect(path: str | Path, *, autocommit: bool = False) -> sqlite3.Connection:
+    """Open the audit DB with a busy_timeout so concurrent writers wait for the lock
+    instead of failing immediately with ``database is locked``."""
+    conn = sqlite3.connect(path, isolation_level=None if autocommit else "")
+    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    return conn
+
+
 def init_db(path: str | Path) -> None:
     """Create the audit database and schema if they do not exist."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(p)
+    conn = connect(p)
     try:
+        conn.execute("PRAGMA journal_mode = WAL")  # persists; readers don't block writers
         conn.executescript(_SCHEMA)
         conn.commit()
     finally:
@@ -63,7 +75,7 @@ def write_audit(
 ) -> None:
     """Append one audit row on a fresh writable connection."""
     sql_hash = hashlib.sha256(sql.encode()).hexdigest() if sql is not None else None
-    conn = sqlite3.connect(path)
+    conn = connect(path)
     try:
         conn.execute(
             """
