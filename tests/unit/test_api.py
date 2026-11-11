@@ -284,3 +284,12 @@ def test_old_rate_limit_rows_are_pruned(tmp_path, monkeypatch):
     (old,) = conn.execute("SELECT COUNT(*) FROM api_requests WHERE ip_hash='old'").fetchone()
     conn.close()
     assert old == 0  # the 2020 row was pruned on the next request
+
+
+def test_eval_run_id_rejects_unsafe_ids(client):
+    tc, _ = client
+    # path-like / odd ids are rejected (defense-in-depth over Starlette's own blocking)
+    assert tc.get("/api/eval/runs/bad%20id!").status_code == 404
+    assert tc.get("/api/eval/runs/..%2f..%2fetc/questions").status_code == 404
+    # a valid slug that simply doesn't exist still behaves normally
+    assert tc.get("/api/eval/runs/nope-123").status_code == 404

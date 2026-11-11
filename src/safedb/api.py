@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -34,6 +35,7 @@ GLOBAL_DAILY = 150  # below the LLM daily budget
 MAX_BODY_BYTES = 16 * 1024  # reject oversized request bodies before reading them
 MAX_QUESTION_CHARS = 2000  # a user question is short; cap it before it reaches the model
 API_REQUESTS_RETENTION_DAYS = 2  # rate-limit rows only matter for "today"; prune the rest
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")  # run_ids are safe slugs; reject anything path-like
 
 EXAMPLES = [
     {"database": "chinook", "question": "How many tracks are in the database?"},
@@ -179,13 +181,17 @@ def create_app(
 
     @app.get("/api/eval/runs/{run_id}")
     def eval_run(run_id: str) -> Any:
+        if not _RUN_ID_RE.match(run_id):
+            return JSONResponse({"error": "not found"}, status_code=404)
         path = results_dir / run_id / "run.json"
         if not path.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         return json.loads(path.read_text())
 
     @app.get("/api/eval/runs/{run_id}/questions")
-    def eval_questions(run_id: str, result: str | None = None) -> dict[str, Any]:
+    def eval_questions(run_id: str, result: str | None = None) -> Any:
+        if not _RUN_ID_RE.match(run_id):
+            return JSONResponse({"error": "not found"}, status_code=404)
         path = results_dir / run_id / "questions.jsonl"
         if not path.exists():
             return {"questions": []}
