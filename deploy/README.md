@@ -67,6 +67,17 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d safe-db-mcp.example.com    # TLS
 ```
 
+## Health checks
+
+The API exposes `GET /api/health` → `{"status":"ok","backend":...,"llm_ready":bool}`. Point your
+monitor / load balancer at it; `llm_ready:false` means the live ask path has no key (read-only
+pages still serve). Quick manual check:
+
+```bash
+curl -fsS https://safe-db-mcp.example.com/api/health
+systemctl status safe-db-mcp-api safe-db-mcp-web
+```
+
 ## Updating
 
 ```bash

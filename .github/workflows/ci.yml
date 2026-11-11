@@ -32,3 +32,18 @@ jobs:
 
       - name: Eval regression gate (replay from committed cache; no model, no key)
         run: python -m eval.run_eval --split tune --mode replay --gate
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build dashboard (type-check + compile)
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
