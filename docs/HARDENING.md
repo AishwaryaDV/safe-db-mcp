@@ -6,12 +6,14 @@ regressions, and checked off here. Context: this is a **bring-your-own-key publi
 the threat model is dominated by *cost/abuse control* (someone draining the owner-or-host's key)
 on top of the usual read-only-database safety.
 
+**Status: all 13 findings (C1–L3) addressed as of 2026-11-11.** 129 tests pass, ruff clean,
+replay gate green (0.4231), dashboard builds.
+
 **What is already solid (do not regress):**
 - Safety layer holds against every probed bypass (multi-statement, PRAGMA, ATTACH, writable CTEs,
   table-functions, comment tricks) — two independent walls (sqlglot validator + runtime
   read-only connection with authorizer).
 - Secrets hygiene: `.env` is gitignored and never committed; no keys in `llm_cache/` or the audit DB.
-- 116 tests pass, ruff clean.
 
 ## Status
 
