@@ -254,3 +254,33 @@ def test_ask_reports_generic_error(client, monkeypatch):
     assert r.status_code == 200  # the stream opened; the error is an SSE event
     assert "event: error" in r.text
     assert "secret internal detail" not in r.text  # no raw exception text leaks
+
+
+def test_old_rate_limit_rows_are_pruned(tmp_path, monkeypatch):
+    import sqlite3
+
+    audit_db = tmp_path / "audit.sqlite"
+    audit.init_db(audit_db)
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        yaml.safe_dump({"databases": [{"name": "chinook", "path": "x"}], "audit_db": str(audit_db)})
+    )
+    app = api.create_app(str(cfg), results_dir=tmp_path / "r", slice_path=tmp_path / "s")
+
+    conn = sqlite3.connect(audit_db)
+    conn.execute(
+        "INSERT INTO api_requests (ts, ip_hash) VALUES (?, ?)", ["2020-01-01T00:00:00+00:00", "old"]
+    )
+    conn.commit()
+    conn.close()
+
+    async def fake_agent(database, question, config_path, settings, on_step=None):
+        return AgentResult(answer="ok", final_sql="SELECT 1", final_rows=[[1]], steps=[])
+
+    monkeypatch.setattr(api, "_run_agent", fake_agent)
+    assert TestClient(app).post("/api/ask", json={"question": "q"}).status_code == 200
+
+    conn = sqlite3.connect(audit_db)
+    (old,) = conn.execute("SELECT COUNT(*) FROM api_requests WHERE ip_hash='old'").fetchone()
+    conn.close()
+    assert old == 0  # the 2020 row was pruned on the next request

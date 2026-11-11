@@ -25,7 +25,7 @@ on top of the usual read-only-database safety.
 | M1 | MED | SQLite write contention under async uvicorn | ☑ fixed (WAL + busy_timeout) |
 | M2 | MED | SSE isn't actually streamed (whole agent runs first) | ☑ fixed |
 | M3 | MED | `bypassPermissions` lacks a guard test | ☑ fixed |
-| M4 | MED | `api_requests` / audit tables grow unbounded | ☐ |
+| M4 | MED | `api_requests` / audit tables grow unbounded | ☑ fixed |
 | M5 | MED | Raw exception text can reach the client | ☑ fixed (via M2) |
 | L1 | LOW | TLS/HSTS not baked into nginx template | ☐ |
 | L2 | LOW | No healthcheck wired into systemd; no `web/` CI | ☐ |
@@ -127,6 +127,9 @@ on top of the usual read-only-database safety.
 - **Fix:** prune `api_requests` older than N days on write (cheap) or a daily rollup; document audit
   retention.
 - **Verify:** test that rows older than the window are pruned.
+- **Done:** `api_requests` rows older than `API_REQUESTS_RETENTION_DAYS=2` are deleted inside the
+  rate-limit transaction, so the table stays bounded. The `audit_log` is deliberately *not*
+  auto-pruned — it's the security record; its retention is an owner policy decision.
 
 ### M5 — Raw exception text can reach the client
 - **Where:** `src/safedb/api.py` (`/api/ask`), surfaced in `web/app/try/page.tsx`

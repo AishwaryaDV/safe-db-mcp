@@ -12,7 +12,7 @@ import hashlib
 import json
 import logging
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,7 @@ PER_VISITOR_DAILY = 10
 GLOBAL_DAILY = 150  # below the LLM daily budget
 MAX_BODY_BYTES = 16 * 1024  # reject oversized request bodies before reading them
 MAX_QUESTION_CHARS = 2000  # a user question is short; cap it before it reaches the model
+API_REQUESTS_RETENTION_DAYS = 2  # rate-limit rows only matter for "today"; prune the rest
 
 EXAMPLES = [
     {"database": "chinook", "question": "How many tracks are in the database?"},
@@ -227,6 +228,9 @@ def create_app(
                 "INSERT INTO api_requests (ts, ip_hash) VALUES (?, ?)",
                 [datetime.now(UTC).isoformat(), ip_hash],
             )
+            # keep the table bounded: drop rows older than the retention window
+            cutoff = (datetime.now(UTC) - timedelta(days=API_REQUESTS_RETENTION_DAYS)).isoformat()
+            conn.execute("DELETE FROM api_requests WHERE ts < ?", [cutoff])
             conn.execute("COMMIT")
             return True
         finally:
